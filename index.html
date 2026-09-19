@@ -189,6 +189,32 @@ table.repuestos td.qty input{width:64px; text-align:center;}
 
 .note{font-size:12px; color:var(--text-muted); line-height:1.5;}
 .section-recs textarea{min-height:80px;}
+
+/* panel de oficina */
+.main-layout{display:flex; gap:16px; align-items:flex-start;}
+.main-col{flex:1; min-width:0; display:flex; flex-direction:column; gap:18px;}
+.oficina-nav{
+  flex:none; width:172px; display:flex; flex-direction:column; gap:4px;
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+  padding:8px; box-shadow:var(--shadow); position:sticky; top:12px;
+}
+.nav-item{
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  border:none; background:transparent; color:var(--text); text-align:left;
+  padding:9px 10px; border-radius:8px; font:600 13px "Work Sans"; cursor:pointer;
+}
+.nav-item:hover{background:var(--accent-soft);}
+.nav-item[aria-pressed="true"]{background:var(--accent); color:var(--accent-contrast);}
+.nav-badge{
+  font:700 11px "Work Sans"; background:var(--surface-2); color:var(--text-muted);
+  border-radius:999px; padding:1px 7px; min-width:18px; text-align:center;
+}
+.nav-item[aria-pressed="true"] .nav-badge{background:rgba(255,255,255,.28); color:var(--accent-contrast);}
+@media (max-width:680px){
+  .main-layout{flex-direction:column;}
+  .oficina-nav{width:100%; flex-direction:row; position:static;}
+  .nav-item{flex:1; justify-content:center;}
+}
 </style>
 
 <div class="wrap">
@@ -204,65 +230,89 @@ table.repuestos td.qty input{width:64px; text-align:center;}
     <div class="tipo-row" id="tipoRow" role="tablist" aria-label="Tipo de servicio"></div>
   </div>
 
-  <div class="card" id="borradoresCard" data-vista="oficina">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-      <h2 style="margin-bottom:0;">Panel de control — Pendientes por generar</h2>
-      <span class="note" id="pendientesCount"></span>
+  <div class="main-layout">
+    <nav class="oficina-nav" data-vista="oficina">
+      <button type="button" class="nav-item" id="navPendientes" aria-pressed="true">📋 Pendientes <span class="nav-badge" id="badgePendientes">0</span></button>
+      <button type="button" class="nav-item" id="navGenerados" aria-pressed="false">✅ Generados <span class="nav-badge" id="badgeGenerados">0</span></button>
+    </nav>
+
+    <div class="main-col">
+      <div class="card" id="pendientesCard" data-vista="oficina">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+          <h2 style="margin-bottom:0;">Pendientes por generar</h2>
+          <span class="note" id="pendientesCount"></span>
+        </div>
+        <div id="pendientesList" style="display:flex;flex-direction:column;gap:8px;margin-top:10px;"></div>
+        <p class="note" style="margin-top:10px;">Aquí aparecen los informes que el técnico ya guardó desde el campo y que todavía no se han generado. Da clic en "Cargar y revisar" para completarlos y generar el Word.</p>
+      </div>
+
+      <div class="card" id="generadosCard" data-vista="oficina" hidden>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+          <h2 style="margin-bottom:0;">Informes ya generados</h2>
+          <span class="note" id="generadosCount"></span>
+        </div>
+        <div id="generadosList" style="display:flex;flex-direction:column;gap:8px;margin-top:10px;"></div>
+        <p class="note" style="margin-top:10px;">Historial de informes ya generados (las fotos ya no están aquí — quedaron incrustadas en el Word y subidas a SharePoint).</p>
+      </div>
+
+      <div id="formularioSection">
+        <p class="note" id="volverPendientesWrap" data-vista="oficina" hidden>
+          <a href="#" id="linkVolverPendientes" style="color:var(--accent-dark);font-weight:600;text-decoration:none;">← Volver a pendientes</a>
+        </p>
+
+        <div class="card">
+          <h2>Datos de la visita</h2>
+          <div class="field-grid" id="clienteFields"></div>
+        </div>
+
+        <div class="card" id="equipoCard" hidden>
+          <h2 id="equipoTitle">Datos del equipo</h2>
+          <div class="field-grid" id="equipoFields"></div>
+        </div>
+
+        <div class="card">
+          <h2>Trabajos realizados</h2>
+          <div class="table-scroll" id="checklistWrap"></div>
+        </div>
+
+        <div class="card" id="repuestosCard" hidden>
+          <h2>Cambio de repuestos y partes</h2>
+          <div class="table-scroll">
+            <table class="repuestos">
+              <thead><tr><th style="width:32px;">#</th><th>Repuesto / Parte</th><th style="width:80px;">Unidades</th></tr></thead>
+              <tbody id="repuestosBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Observaciones</h2>
+          <div class="field">
+            <textarea id="observaciones" placeholder="Ej: Durante la visita se realizó la revisión de los inversores, inspección del cableado DC/AC..."></textarea>
+          </div>
+        </div>
+
+        <div class="card section-recs" id="recomendacionesCard">
+          <h2>Recomendaciones</h2>
+          <div class="field">
+            <textarea id="recomendaciones" placeholder="Ej: Se recomienda continuar con los mantenimientos periódicos. Próximo mantenimiento en 2 a 3 meses."></textarea>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Anexo fotográfico</h2>
+          <div class="drop" id="dropZone">
+            <strong>Toca para subir</strong> las fotos que envió el técnico<br>o arrástralas aquí (puedes seleccionar varias a la vez)
+          </div>
+          <input type="file" id="fileInput" accept="image/*" multiple hidden>
+          <div class="photo-grid" id="photoGrid"></div>
+          <div class="photo-count" id="photoCount"></div>
+        </div>
+
+        <p class="note">Los datos y fotos se guardan en la nube: el técnico guarda desde el campo y la oficina lo carga desde cualquier computador para generar el Word — sin volver a escribir nada a mano.</p>
+      </div>
     </div>
-    <div id="pendientesList" style="display:flex;flex-direction:column;gap:8px;margin-top:10px;"></div>
-    <p class="note" style="margin-top:10px;">Aquí aparecen los informes que el técnico ya guardó desde el campo y que todavía no se han generado. Da clic en "Cargar y revisar" para completarlos y generar el Word.</p>
   </div>
-
-  <div class="card">
-    <h2>Datos de la visita</h2>
-    <div class="field-grid" id="clienteFields"></div>
-  </div>
-
-  <div class="card" id="equipoCard" hidden>
-    <h2 id="equipoTitle">Datos del equipo</h2>
-    <div class="field-grid" id="equipoFields"></div>
-  </div>
-
-  <div class="card">
-    <h2>Trabajos realizados</h2>
-    <div class="table-scroll" id="checklistWrap"></div>
-  </div>
-
-  <div class="card" id="repuestosCard" hidden>
-    <h2>Cambio de repuestos y partes</h2>
-    <div class="table-scroll">
-      <table class="repuestos">
-        <thead><tr><th style="width:32px;">#</th><th>Repuesto / Parte</th><th style="width:80px;">Unidades</th></tr></thead>
-        <tbody id="repuestosBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Observaciones</h2>
-    <div class="field">
-      <textarea id="observaciones" placeholder="Ej: Durante la visita se realizó la revisión de los inversores, inspección del cableado DC/AC..."></textarea>
-    </div>
-  </div>
-
-  <div class="card section-recs" id="recomendacionesCard">
-    <h2>Recomendaciones</h2>
-    <div class="field">
-      <textarea id="recomendaciones" placeholder="Ej: Se recomienda continuar con los mantenimientos periódicos. Próximo mantenimiento en 2 a 3 meses."></textarea>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Anexo fotográfico</h2>
-    <div class="drop" id="dropZone">
-      <strong>Toca para subir</strong> las fotos que envió el técnico<br>o arrástralas aquí (puedes seleccionar varias a la vez)
-    </div>
-    <input type="file" id="fileInput" accept="image/*" multiple hidden>
-    <div class="photo-grid" id="photoGrid"></div>
-    <div class="photo-count" id="photoCount"></div>
-  </div>
-
-  <p class="note">Los datos y fotos se guardan en la nube: el técnico guarda desde el campo y la oficina lo carga desde cualquier computador para generar el Word — sin volver a escribir nada a mano.</p>
 </div>
 
 <div class="actionbar">
@@ -433,7 +483,7 @@ function renderTipoRow(){
     b.type = 'button';
     b.textContent = t.short;
     b.setAttribute('aria-pressed', key === currentTipoKey ? 'true' : 'false');
-    b.addEventListener('click', () => { currentTipoKey = key; registroActualId = null; fotosMetaActual = null; renderAll(); });
+    b.addEventListener('click', () => { currentTipoKey = key; registroActualId = null; fotosMetaActual = null; renderAll(); if(VISTA === 'oficina') setOficinaTab('formulario'); });
     tipoRow.appendChild(b);
   });
 }
@@ -902,6 +952,8 @@ btnGenerar.addEventListener('click', async () => {
       }
       await marcarGenerado(registroActualId);
       await renderBorradores();
+      if(generadosCargados) await renderGenerados();
+      setOficinaTab('pendientes');
       if(spOk){
         setStatus('Informe descargado y subido a SharePoint ✓ (carpeta del cliente creada automáticamente).', 'ok');
       } else if(fotosMetaActual){
@@ -1058,6 +1110,81 @@ async function renderBorradores(){
   }).join('');
   listEl.querySelectorAll('[data-cargar]').forEach(b => b.addEventListener('click', () => cargarBorrador(b.dataset.cargar)));
   listEl.querySelectorAll('[data-eliminar]').forEach(b => b.addEventListener('click', () => eliminarBorrador(b.dataset.eliminar)));
+  const badgeP = document.getElementById('badgePendientes');
+  if(badgeP) badgeP.textContent = borradoresCache.length;
+}
+
+let generadosCache = [];
+let generadosCargados = false;
+
+async function renderGenerados(){
+  const listEl = document.getElementById('generadosList');
+  const countEl = document.getElementById('generadosCount');
+  if(!listEl) return;
+  listEl.innerHTML = '<p class="note">Cargando…</p>';
+  const {data, error} = await sb
+    .from('informes_mantenimiento')
+    .select('id,tipo_servicio,cliente,fecha,tecnico,estado,generado_at')
+    .eq('estado', 'generado')
+    .order('generado_at', {ascending:false})
+    .limit(100);
+  generadosCargados = true;
+  if(error){
+    console.error(error);
+    listEl.innerHTML = '<p class="note" style="color:var(--danger)">No se pudo cargar el historial.</p>';
+    return;
+  }
+  generadosCache = data || [];
+  const badgeG = document.getElementById('badgeGenerados');
+  if(badgeG) badgeG.textContent = generadosCache.length;
+  countEl.textContent = generadosCache.length ? `${generadosCache.length} informe(s)` : '';
+  if(!generadosCache.length){
+    listEl.innerHTML = '<p class="note">Todavía no se ha generado ningún informe.</p>';
+    return;
+  }
+  listEl.innerHTML = generadosCache.map(d => {
+    const tName = TIPOS[d.tipo_servicio] ? TIPOS[d.tipo_servicio].short : d.tipo_servicio;
+    const gen = d.generado_at ? new Date(d.generado_at).toLocaleString('es-EC', {dateStyle:'short', timeStyle:'short'}) : '';
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border:1px solid var(--border);border-radius:8px;padding:10px;">
+        <div style="min-width:0;">
+          <div style="font:600 13.5px 'Work Sans';">${escapeHtml(d.cliente || '(sin cliente)')} <span style="color:var(--text-muted);font-weight:500;">— ${escapeHtml(tName)}</span></div>
+          <div class="note">Técnico: ${escapeHtml(d.tecnico || '—')} · Visita: ${d.fecha ? formatFechaInforme(d.fecha) : '—'} · Generado: ${gen}</div>
+        </div>
+        <button type="button" class="btn-secondary btn-danger" data-eliminar-gen="${escapeAttr(d.id)}">Eliminar del historial</button>
+      </div>`;
+  }).join('');
+  listEl.querySelectorAll('[data-eliminar-gen]').forEach(b => b.addEventListener('click', async () => {
+    if(!confirm('¿Eliminar este informe del historial? Esta acción no se puede deshacer (el Word y las fotos en SharePoint no se ven afectados).')) return;
+    await sb.from('informes_mantenimiento').delete().eq('id', b.dataset.eliminarGen);
+    await renderGenerados();
+  }));
+}
+
+// -------- Pestañas del panel de oficina (Pendientes / Generados / Formulario) --------
+let oficinaTab = 'pendientes';
+function setOficinaTab(tab){
+  if(VISTA !== 'oficina') return;
+  oficinaTab = tab;
+  const pendientesCard = document.getElementById('pendientesCard');
+  const generadosCard = document.getElementById('generadosCard');
+  const formularioSection = document.getElementById('formularioSection');
+  const volverWrap = document.getElementById('volverPendientesWrap');
+  const navP = document.getElementById('navPendientes');
+  const navG = document.getElementById('navGenerados');
+  pendientesCard.hidden = tab !== 'pendientes';
+  generadosCard.hidden = tab !== 'generados';
+  formularioSection.hidden = tab !== 'formulario';
+  volverWrap.hidden = tab !== 'formulario';
+  navP.setAttribute('aria-pressed', tab === 'pendientes');
+  navG.setAttribute('aria-pressed', tab === 'generados');
+  if(tab === 'generados' && !generadosCargados) renderGenerados();
+}
+if(VISTA === 'oficina'){
+  document.getElementById('navPendientes').addEventListener('click', () => setOficinaTab('pendientes'));
+  document.getElementById('navGenerados').addEventListener('click', () => setOficinaTab('generados'));
+  document.getElementById('linkVolverPendientes').addEventListener('click', (e) => { e.preventDefault(); setOficinaTab('pendientes'); });
+  setOficinaTab('pendientes');
 }
 
 const btnGuardar = document.getElementById('btnGuardar');
@@ -1127,6 +1254,7 @@ async function cargarBorrador(id){
       fotos,
     };
     renderAll();
+    setOficinaTab('formulario');
     setStatus('Informe cargado — revisa los datos y genera el Word cuando esté listo.', 'ok');
   }catch(err){
     console.error(err);
