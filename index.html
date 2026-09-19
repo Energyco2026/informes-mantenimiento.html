@@ -100,11 +100,17 @@ h1,h2,h3{font-family:"Sora",sans-serif; text-wrap:balance; margin:0;}
 @media (max-width:480px){.field-grid{grid-template-columns:1fr;}}
 .field{display:flex;flex-direction:column;gap:4px;}
 .field label{font-size:12px;font-weight:600;color:var(--text-muted);}
-.field input, .field textarea{
+.field input, .field textarea, .field select{
   font:500 14px/1.3 "Work Sans"; padding:9px 10px; border-radius:8px;
   border:1px solid var(--border); background:var(--surface-2); color:var(--text);
-  width:100%;
+  width:100%; appearance:none; -webkit-appearance:none;
 }
+.field select{
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%235c6b58'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z' clip-rule='evenodd'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:right 10px center; background-size:16px;
+  padding-right:32px;
+}
+.field select:focus{outline:2px solid var(--accent); outline-offset:1px; background-color:var(--surface);}
 .field textarea{resize:vertical; min-height:64px; font-weight:400;}
 .field input:focus, .field textarea:focus{outline:2px solid var(--accent); outline-offset:1px; background:var(--surface);}
 
@@ -295,7 +301,7 @@ const CAMPOS_GEN_CONTROL = [
   {key:'marca', label:'Marca', ph:'Ej: CUMMINS'},
   {key:'modelo', label:'Modelo', ph:''},
   {key:'serie', label:'Serie', ph:''},
-  {key:'potencia', label:'Potencia', ph:'Ej: 22 KW'},
+  {key:'potencia', label:'Potencia', type:'select-otro', opciones:['14 KW','22 KW']},
   {key:'horasMotor', label:'Horas de trabajo del motor', ph:''},
 ];
 const CAMPOS_GEN_GAS = [
@@ -387,7 +393,7 @@ const CLIENTE_CAMPOS = [
   {key:'fecha', label:'Fecha', type:'date'},
   {key:'cliente', label:'Cliente', ph:'Ej: CARLOS GARCÍA'},
   {key:'direccion', label:'Dirección', ph:'Ej: AIRES DE BATÁN 12'},
-  {key:'tecnico', label:'Técnico', type:'select-otro', opciones:['Juan Diego Moreira', 'Miguel León']},
+  {key:'tecnico', label:'Técnico', type:'select-otro', opciones:['Juan Diego Moreira', 'Miguel León'], otroLabel:'Nombre del técnico'},
 ];
 
 /* Formatea una fecha yyyy-mm-dd (valor nativo de <input type=date>) a DD/MM/AAAA para el informe */
@@ -432,7 +438,7 @@ function renderTipoRow(){
 const OTRO_VALOR = '__otro__';
 
 function fieldHTML(obj, campo){
-  const {key, label, ph, type, opciones} = campo;
+  const {key, label, ph, type, opciones, otroLabel} = campo;
   if(type === 'date'){
     return `<div class="field"><label for="f_${key}">${label}</label>
       <input type="date" id="f_${key}" data-key="${key}" value="${escapeAttr(obj[key]||'')}"></div>`;
@@ -442,14 +448,14 @@ function fieldHTML(obj, campo){
     const selectValue = esOtro ? OTRO_VALOR : (obj[key] || '');
     const opts = ['<option value="">Selecciona…</option>']
       .concat(opciones.map(o => `<option value="${escapeAttr(o)}"${o===selectValue?' selected':''}>${escapeHtml(o)}</option>`))
-      .concat([`<option value="${OTRO_VALOR}"${esOtro?' selected':''}>Otro (escribir nombre)…</option>`]);
+      .concat([`<option value="${OTRO_VALOR}"${esOtro?' selected':''}>Otro…</option>`]);
     return `<div class="field">
         <label for="f_${key}_sel">${label}</label>
         <select id="f_${key}_sel" data-key="${key}" data-role="select-otro">${opts.join('')}</select>
       </div>
       <div class="field" data-otro-wrap="${key}" ${esOtro?'':'hidden'}>
-        <label for="f_${key}_otro">Nombre del técnico</label>
-        <input id="f_${key}_otro" data-key="${key}" data-role="otro-input" value="${escapeAttr(esOtro?obj[key]:'')}" placeholder="Escribe el nombre">
+        <label for="f_${key}_otro">${escapeHtml(otroLabel || label)}</label>
+        <input id="f_${key}_otro" data-key="${key}" data-role="otro-input" value="${escapeAttr(esOtro?obj[key]:'')}" placeholder="Escribe el valor">
       </div>`;
   }
   return `<div class="field"><label for="f_${key}">${label}</label>
@@ -458,31 +464,34 @@ function fieldHTML(obj, campo){
 function escapeAttr(v){ return String(v).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
 function escapeHtml(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-const clienteFieldsEl = document.getElementById('clienteFields');
-function renderClienteFields(){
-  clienteFieldsEl.innerHTML = CLIENTE_CAMPOS.map(c => fieldHTML(s().cliente, c)).join('');
-
-  clienteFieldsEl.querySelectorAll('input:not([data-role="otro-input"])').forEach(inp => {
-    inp.addEventListener('input', () => { s().cliente[inp.dataset.key] = inp.value; });
+// Cablea inputs/selects de un contenedor de campos hacia el objeto de estado que corresponda (cliente o equipo).
+function wireFields(container, target){
+  container.querySelectorAll('input:not([data-role="otro-input"])').forEach(inp => {
+    inp.addEventListener('input', () => { target()[inp.dataset.key] = inp.value; });
   });
-
-  clienteFieldsEl.querySelectorAll('select[data-role="select-otro"]').forEach(sel => {
+  container.querySelectorAll('select[data-role="select-otro"]').forEach(sel => {
     sel.addEventListener('change', () => {
       const key = sel.dataset.key;
-      const wrap = clienteFieldsEl.querySelector(`[data-otro-wrap="${key}"]`);
+      const wrap = container.querySelector(`[data-otro-wrap="${key}"]`);
       if(sel.value === OTRO_VALOR){
         wrap.hidden = false;
         wrap.querySelector('input').focus();
-        s().cliente[key] = wrap.querySelector('input').value;
+        target()[key] = wrap.querySelector('input').value;
       } else {
         wrap.hidden = true;
-        s().cliente[key] = sel.value;
+        target()[key] = sel.value;
       }
     });
   });
-  clienteFieldsEl.querySelectorAll('input[data-role="otro-input"]').forEach(inp => {
-    inp.addEventListener('input', () => { s().cliente[inp.dataset.key] = inp.value; });
+  container.querySelectorAll('input[data-role="otro-input"]').forEach(inp => {
+    inp.addEventListener('input', () => { target()[inp.dataset.key] = inp.value; });
   });
+}
+
+const clienteFieldsEl = document.getElementById('clienteFields');
+function renderClienteFields(){
+  clienteFieldsEl.innerHTML = CLIENTE_CAMPOS.map(c => fieldHTML(s().cliente, c)).join('');
+  wireFields(clienteFieldsEl, () => s().cliente);
 }
 
 const equipoCard = document.getElementById('equipoCard');
@@ -494,9 +503,7 @@ function renderEquipoFields(){
   equipoCard.hidden = false;
   equipoTitle.textContent = eq.title;
   equipoFieldsEl.innerHTML = eq.campos.map(c => fieldHTML(s().equipo, c)).join('');
-  equipoFieldsEl.querySelectorAll('input').forEach(inp => {
-    inp.addEventListener('input', () => { s().equipo[inp.dataset.key] = inp.value; });
-  });
+  wireFields(equipoFieldsEl, () => s().equipo);
 }
 
 /* ---------------- Render: checklist ---------------- */
