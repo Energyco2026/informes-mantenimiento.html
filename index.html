@@ -53,6 +53,7 @@
   --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -10px rgba(0,0,0,.5);
 }
 *{box-sizing:border-box;}
+[hidden]{display:none !important;}
 body{
   background:var(--bg);
   color:var(--text);
@@ -309,7 +310,7 @@ const CAMPOS_GEN_GAS = [
   {key:'modelo', label:'Modelo', ph:''},
   {key:'serie', label:'Serie', ph:''},
   {key:'horasMotor', label:'Horas de Motor', ph:''},
-  {key:'potencia', label:'Potencia', ph:'Ej: 14 KW'},
+  {key:'potencia', label:'Potencia', type:'select-otro', opciones:['14 KW','22 KW']},
 ];
 
 const TIPOS = {
