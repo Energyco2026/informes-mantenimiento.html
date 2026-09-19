@@ -196,7 +196,7 @@ table.repuestos td.qty input{width:64px; text-align:center;}
     <img class="logo" id="logoImg" alt="ENERGYCONTROL" width="52" height="52">
     <div class="titles">
       <h1>Generador de Informes</h1>
-      <div class="sub">Servicio Post-Venta · ENERGYCONTROL</div>
+      <div class="sub">Servicio Post-Venta · ENERGYCONTROL · <span id="vistaLabel"></span></div>
     </div>
   </div>
 
@@ -204,14 +204,13 @@ table.repuestos td.qty input{width:64px; text-align:center;}
     <div class="tipo-row" id="tipoRow" role="tablist" aria-label="Tipo de servicio"></div>
   </div>
 
-  <div class="card" id="borradoresCard">
-    <h2>Informes guardados por el técnico</h2>
-    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      <select id="selectBorrador" style="flex:1; min-width:200px; font:500 14px 'Work Sans'; padding:9px 10px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--text);"></select>
-      <button type="button" class="btn-secondary" id="btnCargarBorrador">Cargar</button>
-      <button type="button" class="btn-secondary btn-danger" id="btnEliminarBorrador">Eliminar</button>
+  <div class="card" id="borradoresCard" data-vista="oficina">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+      <h2 style="margin-bottom:0;">Panel de control — Pendientes por generar</h2>
+      <span class="note" id="pendientesCount"></span>
     </div>
-    <p class="note" style="margin-top:8px;">Aquí quedan los informes que el técnico guardó desde el campo. La persona de oficina los carga, revisa y genera el Word final.</p>
+    <div id="pendientesList" style="display:flex;flex-direction:column;gap:8px;margin-top:10px;"></div>
+    <p class="note" style="margin-top:10px;">Aquí aparecen los informes que el técnico ya guardó desde el campo y que todavía no se han generado. Da clic en "Cargar y revisar" para completarlos y generar el Word.</p>
   </div>
 
   <div class="card">
@@ -270,8 +269,8 @@ table.repuestos td.qty input{width:64px; text-align:center;}
   <div class="wrap-inner">
     <span class="status-msg" id="statusMsg"></span>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
-      <button type="button" class="btn-secondary" id="btnGuardar" title="Lo usa el técnico / quien captura los datos en campo">💾 Guardar información</button>
-      <button type="button" class="btn-generar" id="btnGenerar" title="Lo usa la persona de oficina para producir el Word final">📄 Generar informe (.docx)</button>
+      <button type="button" class="btn-secondary" id="btnGuardar" data-vista="tecnico" title="Lo usa el técnico / quien captura los datos en campo">💾 Guardar información</button>
+      <button type="button" class="btn-generar" id="btnGenerar" data-vista="oficina" title="Lo usa la persona de oficina para producir el Word final">📄 Generar informe (.docx)</button>
     </div>
   </div>
 </div>
@@ -286,7 +285,12 @@ document.getElementById("logoImg").src = LOGO_DATA_URI;
 const SUPABASE_URL = "https://wiqnfnlnsdnkxgshchjg.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndpcW5mbmxuc2Rua3hnc2hjaGpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzNzg3NTYsImV4cCI6MjEwMTk1NDc1Nn0.nhpxj8lF0A7aFa-xTEqDrIWY04y_MI15ZQyQ3L7VfHQ";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const VISTA = new URLSearchParams(location.search).get('vista') === 'oficina' ? 'oficina' : 'tecnico';
+document.title = VISTA === 'oficina' ? 'Generador de Informes — Oficina' : 'Generador de Informes — Técnico';
 const FOTOS_BUCKET = "informes-fotos-temp";
+const PA_SHAREPOINT_URL = "https://defaultb2cce9a6443f42c7b085d80d2fb83b.f8.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/23/workflows/9ca870a18901436786562d9f546c4184/triggers/manual/paths/invoke?api-version=1";
+const MESES_ES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+const MESES_ABR_ES = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
 
 
 /* ---------------- Config de tipos de servicio ---------------- */
@@ -429,7 +433,7 @@ function renderTipoRow(){
     b.type = 'button';
     b.textContent = t.short;
     b.setAttribute('aria-pressed', key === currentTipoKey ? 'true' : 'false');
-    b.addEventListener('click', () => { currentTipoKey = key; registroActualId = null; renderAll(); });
+    b.addEventListener('click', () => { currentTipoKey = key; registroActualId = null; fotosMetaActual = null; renderAll(); });
     tipoRow.appendChild(b);
   });
 }
@@ -888,10 +892,23 @@ btnGenerar.addEventListener('click', async () => {
     const blob = await buildDocx();
     descargarBlob(blob, clienteFileName());
     if(registroActualId){
-      setStatus('Informe descargado ✓ — actualizando registro…', 'ok');
+      let spOk = false, spErr = null;
+      if(fotosMetaActual){
+        setStatus('Informe descargado ✓ — enviando a SharePoint…', 'ok');
+        try{
+          await enviarASharePoint(blob, fotosMetaActual);
+          spOk = true;
+        }catch(e){ spErr = e; console.error(e); }
+      }
       await marcarGenerado(registroActualId);
       await renderBorradores();
-      setStatus('Informe descargado y registro actualizado ✓. Súbelo ahora a la carpeta de SharePoint del cliente.', 'ok');
+      if(spOk){
+        setStatus('Informe descargado y subido a SharePoint ✓ (carpeta del cliente creada automáticamente).', 'ok');
+      } else if(fotosMetaActual){
+        setStatus('Informe descargado ✓, pero no se pudo enviar a SharePoint automáticamente (' + (spErr && spErr.message || 'error') + '). Súbelo tú a la carpeta del cliente.', 'err');
+      } else {
+        setStatus('Informe descargado y registro actualizado ✓. Súbelo ahora a la carpeta de SharePoint del cliente.', 'ok');
+      }
     } else {
       setStatus('Informe descargado ✓', 'ok');
     }
@@ -906,6 +923,50 @@ btnGenerar.addEventListener('click', async () => {
 /* ---------------- Guardar / cargar informes (técnico → oficina) — Supabase ---------------- */
 
 let registroActualId = null; // id del registro cargado desde Supabase (si lo hay)
+let fotosMetaActual = null; // fotos (path/nombre/url reales en Supabase Storage) del borrador cargado, para poder enviarlas a SharePoint
+
+function blobToBase64(blob){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Arma los 3 nombres de carpeta (año/mes/cliente) igual a como los espera el flujo de Power Automate.
+function datosCarpetaSharePoint(){
+  const fechaStr = s().cliente.fecha;
+  let d = fechaStr ? new Date(fechaStr + 'T00:00:00') : new Date();
+  if(isNaN(d.getTime())) d = new Date();
+  const anio = d.getFullYear();
+  const dia = String(d.getDate()).padStart(2,'0');
+  const clienteLimpio = (s().cliente.cliente || 'CLIENTE').trim().toUpperCase();
+  return {
+    carpetaAnio: `SERVICIOS ${anio}`,
+    carpetaMes: `${MESES_ES[d.getMonth()]} ${anio}`,
+    carpetaCliente: `${clienteLimpio} ${dia}${MESES_ABR_ES[d.getMonth()]}`,
+  };
+}
+
+// Envía el Word (base64) + los links de las fotos (ya en Supabase Storage) al flujo de Power Automate,
+// que crea la carpeta si no existe y sube todo a SharePoint.
+async function enviarASharePoint(blob, fotosMeta){
+  const docxBase64 = await blobToBase64(blob);
+  const carpetas = datosCarpetaSharePoint();
+  const payload = {
+    ...carpetas,
+    docxNombre: clienteFileName(),
+    docxBase64,
+    fotos: (fotosMeta || []).map(f => ({ nombre: f.nombre, url: f.url })),
+  };
+  const res = await fetch(PA_SHAREPOINT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if(!res.ok) throw new Error('Power Automate respondió ' + res.status);
+}
 
 function slugify(v){
   return String(v||'').trim().toLowerCase()
@@ -957,30 +1018,46 @@ async function descargarFotoComoFile(fotoMeta){
   return {file, url: URL.createObjectURL(blob)};
 }
 
-const selectBorrador = document.getElementById('selectBorrador');
 let borradoresCache = [];
 
 async function renderBorradores(){
+  const listEl = document.getElementById('pendientesList');
+  const countEl = document.getElementById('pendientesCount');
+  if(!listEl) return; // vista técnico: este panel ni existe en el DOM visible
   const {data, error} = await sb
     .from('informes_mantenimiento')
-    .select('id,tipo_servicio,cliente,fecha,estado,created_at')
+    .select('id,tipo_servicio,cliente,fecha,tecnico,fotos,estado,created_at')
     .eq('estado', 'guardado')
-    .order('created_at', {ascending:false});
+    .order('created_at', {ascending:true});
   if(error){
     console.error(error);
-    selectBorrador.innerHTML = '<option value="">(Error cargando informes — revisa la conexión)</option>';
+    listEl.innerHTML = '<p class="note" style="color:var(--danger)">No se pudo cargar el listado (revisa tu conexión).</p>';
     return;
   }
   borradoresCache = data || [];
+  countEl.textContent = borradoresCache.length ? `${borradoresCache.length} pendiente(s)` : '';
   if(!borradoresCache.length){
-    selectBorrador.innerHTML = '<option value="">(No hay informes guardados todavía)</option>';
+    listEl.innerHTML = '<p class="note">No hay informes pendientes por generar 🎉</p>';
     return;
   }
-  selectBorrador.innerHTML = borradoresCache.map(d => {
+  listEl.innerHTML = borradoresCache.map(d => {
     const tName = TIPOS[d.tipo_servicio] ? TIPOS[d.tipo_servicio].short : d.tipo_servicio;
-    const label = `${tName} — ${d.cliente || '(sin cliente)'} — ${d.fecha ? formatFechaInforme(d.fecha) : '(sin fecha)'}`;
-    return `<option value="${escapeAttr(d.id)}">${escapeHtml(label)}</option>`;
+    const nFotos = (d.fotos || []).length;
+    const guardado = d.created_at ? new Date(d.created_at).toLocaleString('es-EC', {dateStyle:'short', timeStyle:'short'}) : '';
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--surface-2);">
+        <div style="min-width:0;">
+          <div style="font:600 13.5px 'Work Sans';">${escapeHtml(d.cliente || '(sin cliente)')} <span style="color:var(--text-muted);font-weight:500;">— ${escapeHtml(tName)}</span></div>
+          <div class="note">Técnico: ${escapeHtml(d.tecnico || '—')} · Visita: ${d.fecha ? formatFechaInforme(d.fecha) : '—'} · ${nFotos} foto(s) · Guardado: ${guardado}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex:none;">
+          <button type="button" class="btn-secondary" data-cargar="${escapeAttr(d.id)}">Cargar y revisar</button>
+          <button type="button" class="btn-secondary btn-danger" data-eliminar="${escapeAttr(d.id)}">Eliminar</button>
+        </div>
+      </div>`;
   }).join('');
+  listEl.querySelectorAll('[data-cargar]').forEach(b => b.addEventListener('click', () => cargarBorrador(b.dataset.cargar)));
+  listEl.querySelectorAll('[data-eliminar]').forEach(b => b.addEventListener('click', () => eliminarBorrador(b.dataset.eliminar)));
 }
 
 const btnGuardar = document.getElementById('btnGuardar');
@@ -1030,8 +1107,7 @@ btnGuardar.addEventListener('click', async () => {
   }
 });
 
-document.getElementById('btnCargarBorrador').addEventListener('click', async () => {
-  const id = selectBorrador.value;
+async function cargarBorrador(id){
   if(!id) return;
   setStatus('Cargando informe…');
   try{
@@ -1039,6 +1115,7 @@ document.getElementById('btnCargarBorrador').addEventListener('click', async () 
     if(error) throw error;
     currentTipoKey = draft.tipo_servicio;
     registroActualId = draft.id;
+    fotosMetaActual = draft.fotos || [];
     const fotos = await Promise.all((draft.fotos || []).map(descargarFotoComoFile));
     state[currentTipoKey] = {
       cliente: {cliente: draft.cliente, direccion: draft.direccion, tecnico: draft.tecnico, fecha: draft.fecha},
@@ -1055,25 +1132,23 @@ document.getElementById('btnCargarBorrador').addEventListener('click', async () 
     console.error(err);
     setStatus('No se pudo cargar el informe.', 'err');
   }
-});
+}
 
-document.getElementById('btnEliminarBorrador').addEventListener('click', async () => {
-  const id = selectBorrador.value;
+async function eliminarBorrador(id){
   if(!id) return;
   if(!confirm('¿Eliminar este informe guardado? Esta acción no se puede deshacer.')) return;
   try{
-    const draft = borradoresCache.find(d => d.id === id);
     const {data: full} = await sb.from('informes_mantenimiento').select('fotos').eq('id', id).single();
     await borrarFotosStorage(full ? full.fotos : []);
     await sb.from('informes_mantenimiento').delete().eq('id', id);
-    if(registroActualId === id) registroActualId = null;
+    if(registroActualId === id){ registroActualId = null; fotosMetaActual = null; }
     await renderBorradores();
     setStatus('Informe guardado eliminado.');
   }catch(err){
     console.error(err);
     setStatus('No se pudo eliminar el informe.', 'err');
   }
-});
+}
 
 async function marcarGenerado(id){
   try{
@@ -1083,10 +1158,16 @@ async function marcarGenerado(id){
     // para que Supabase Storage no se llene. El .docx (con las fotos) lo subes tú a SharePoint.
     await borrarFotosStorage(full ? full.fotos : []);
     registroActualId = null;
+    fotosMetaActual = null;
   }catch(err){
     console.error('No se pudo actualizar el registro', err);
   }
 }
+
+document.querySelectorAll('[data-vista]').forEach(el => {
+  if(el.dataset.vista !== VISTA) el.hidden = true;
+});
+document.getElementById('vistaLabel').textContent = VISTA === 'oficina' ? 'Vista: Oficina' : 'Vista: Técnico';
 
 renderAll();
 renderBorradores();
