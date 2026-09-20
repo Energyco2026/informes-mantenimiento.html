@@ -338,7 +338,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const VISTA = new URLSearchParams(location.search).get('vista') === 'oficina' ? 'oficina' : 'tecnico';
 document.title = VISTA === 'oficina' ? 'Generador de Informes — Oficina' : 'Generador de Informes — Técnico';
 const FOTOS_BUCKET = "informes-fotos-temp";
-const PA_SHAREPOINT_URL = "https://defaultb2cce9a6443f42c7b085d80d2fb83b.f8.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/23/workflows/9ca870a18901436786562d9f546c4184/triggers/manual/paths/invoke?api-version=1";
+const PA_SHAREPOINT_URL = "https://defaultb2cce9a6443f42c7b085d80d2fb83b.f8.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/23/workflows/9ca870a18901436786562d9f546c4184/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=qOdqRws7ZmiaDQsQK5kjOPkx63dKNM6svTfNliaSkkg";
 const MESES_ES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
 const MESES_ABR_ES = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
 
