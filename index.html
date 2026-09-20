@@ -251,6 +251,7 @@ table.repuestos td.qty input{width:64px; text-align:center;}
           <h2 style="margin-bottom:0;">Informes ya generados</h2>
           <span class="note" id="generadosCount"></span>
         </div>
+        <div class="tipo-row" id="generadosTipoRow" style="margin:10px 0 0;"></div>
         <div id="generadosList" style="display:flex;flex-direction:column;gap:8px;margin-top:10px;"></div>
         <p class="note" style="margin-top:10px;">Historial de informes ya generados (las fotos ya no están aquí — quedaron incrustadas en el Word y subidas a SharePoint).</p>
       </div>
@@ -1116,10 +1117,26 @@ async function renderBorradores(){
 
 let generadosCache = [];
 let generadosCargados = false;
+let generadosTipoFiltro = 'todos';
+
+function renderGeneradosTipoRow(){
+  const row = document.getElementById('generadosTipoRow');
+  if(!row) return;
+  row.innerHTML = '';
+  const opciones = [['todos', 'Todas'], ...Object.entries(TIPOS).map(([key, t]) => [key, t.short])];
+  opciones.forEach(([key, label]) => {
+    const b = document.createElement('button');
+    b.className = 'tipo-chip';
+    b.type = 'button';
+    b.textContent = label;
+    b.setAttribute('aria-pressed', key === generadosTipoFiltro ? 'true' : 'false');
+    b.addEventListener('click', () => { generadosTipoFiltro = key; renderGeneradosList(); });
+    row.appendChild(b);
+  });
+}
 
 async function renderGenerados(){
   const listEl = document.getElementById('generadosList');
-  const countEl = document.getElementById('generadosCount');
   if(!listEl) return;
   listEl.innerHTML = '<p class="note">Cargando…</p>';
   const {data, error} = await sb
@@ -1137,12 +1154,23 @@ async function renderGenerados(){
   generadosCache = data || [];
   const badgeG = document.getElementById('badgeGenerados');
   if(badgeG) badgeG.textContent = generadosCache.length;
-  countEl.textContent = generadosCache.length ? `${generadosCache.length} informe(s)` : '';
-  if(!generadosCache.length){
-    listEl.innerHTML = '<p class="note">Todavía no se ha generado ningún informe.</p>';
+  renderGeneradosTipoRow();
+  renderGeneradosList();
+}
+
+function renderGeneradosList(){
+  const listEl = document.getElementById('generadosList');
+  const countEl = document.getElementById('generadosCount');
+  if(!listEl) return;
+  const filtrados = generadosTipoFiltro === 'todos'
+    ? generadosCache
+    : generadosCache.filter(d => d.tipo_servicio === generadosTipoFiltro);
+  countEl.textContent = filtrados.length ? `${filtrados.length} informe(s)` : '';
+  if(!filtrados.length){
+    listEl.innerHTML = `<p class="note">${generadosCache.length ? 'No hay informes generados en esta categoría.' : 'Todavía no se ha generado ningún informe.'}</p>`;
     return;
   }
-  listEl.innerHTML = generadosCache.map(d => {
+  listEl.innerHTML = filtrados.map(d => {
     const tName = TIPOS[d.tipo_servicio] ? TIPOS[d.tipo_servicio].short : d.tipo_servicio;
     const gen = d.generado_at ? new Date(d.generado_at).toLocaleString('es-EC', {dateStyle:'short', timeStyle:'short'}) : '';
     return `
@@ -1151,9 +1179,13 @@ async function renderGenerados(){
           <div style="font:600 13.5px 'Work Sans';">${escapeHtml(d.cliente || '(sin cliente)')} <span style="color:var(--text-muted);font-weight:500;">— ${escapeHtml(tName)}</span></div>
           <div class="note">Técnico: ${escapeHtml(d.tecnico || '—')} · Visita: ${d.fecha ? formatFechaInforme(d.fecha) : '—'} · Generado: ${gen}</div>
         </div>
-        <button type="button" class="btn-secondary btn-danger" data-eliminar-gen="${escapeAttr(d.id)}">Eliminar del historial</button>
+        <div style="display:flex;gap:6px;flex:none;">
+          <button type="button" class="btn-secondary" data-editar-gen="${escapeAttr(d.id)}">Editar</button>
+          <button type="button" class="btn-secondary btn-danger" data-eliminar-gen="${escapeAttr(d.id)}">Eliminar del historial</button>
+        </div>
       </div>`;
   }).join('');
+  listEl.querySelectorAll('[data-editar-gen]').forEach(b => b.addEventListener('click', () => cargarGenerado(b.dataset.editarGen)));
   listEl.querySelectorAll('[data-eliminar-gen]').forEach(b => b.addEventListener('click', async () => {
     if(!confirm('¿Eliminar este informe del historial? Esta acción no se puede deshacer (el Word y las fotos en SharePoint no se ven afectados).')) return;
     await sb.from('informes_mantenimiento').delete().eq('id', b.dataset.eliminarGen);
@@ -1256,6 +1288,33 @@ async function cargarBorrador(id){
     renderAll();
     setOficinaTab('formulario');
     setStatus('Informe cargado — revisa los datos y genera el Word cuando esté listo.', 'ok');
+  }catch(err){
+    console.error(err);
+    setStatus('No se pudo cargar el informe.', 'err');
+  }
+}
+
+async function cargarGenerado(id){
+  if(!id) return;
+  setStatus('Cargando informe…');
+  try{
+    const {data: draft, error} = await sb.from('informes_mantenimiento').select('*').eq('id', id).single();
+    if(error) throw error;
+    currentTipoKey = draft.tipo_servicio;
+    registroActualId = draft.id;
+    fotosMetaActual = null; // las fotos ya se subieron a SharePoint y se borraron del bucket temporal
+    state[currentTipoKey] = {
+      cliente: {cliente: draft.cliente, direccion: draft.direccion, tecnico: draft.tecnico, fecha: draft.fecha},
+      equipo: draft.equipo || {},
+      checklist: draft.checklist || {},
+      repuestos: draft.repuestos || {},
+      observaciones: draft.observaciones || '',
+      recomendaciones: draft.recomendaciones || '',
+      fotos: [],
+    };
+    renderAll();
+    setOficinaTab('formulario');
+    setStatus('Informe cargado para editar — las fotos ya no están disponibles (se subieron a SharePoint). Si quieres cambiar fotos, adjunta unas nuevas. Al generar de nuevo se descarga el Word actualizado; el envío automático a SharePoint solo aplica si adjuntas fotos nuevas.', 'ok');
   }catch(err){
     console.error(err);
     setStatus('No se pudo cargar el informe.', 'err');
