@@ -424,7 +424,7 @@ const TIPOS = {
     recomendaciones:true
   },
   gen_gas: {
-    label:'Mantenimiento Generador a Gas', short:'Generador a Gas',
+    label:'Mantenimiento Generador a Gas', short:'Generador',
     docTitle:'INFORME DE MANTENIMIENTOS DE GENERADOR A GAS',
     equipo:{title:'Datos del generador', campos:CAMPOS_GEN_GAS},
     checklist:{dual:true, cols:['realizado'], perRowObs:false, groups:[
@@ -449,7 +449,7 @@ const CLIENTE_CAMPOS = [
   {key:'fecha', label:'Fecha', type:'date'},
   {key:'cliente', label:'Cliente', ph:'Ej: CARLOS GARCÍA'},
   {key:'direccion', label:'Dirección', ph:'Ej: AIRES DE BATÁN 12'},
-  {key:'tecnico', label:'Técnico', type:'select-otro', opciones:['Juan Diego Moreira', 'Miguel León'], otroLabel:'Nombre del técnico'},
+  {key:'tecnico', label:'Técnico', type:'select-otro', opciones:['Juan Diego Moreira', 'Miguel León'], otroLabel:'Nombre del técnico', otroPh:'Escribe el nombre'},
 ];
 
 /* Formatea una fecha yyyy-mm-dd (valor nativo de <input type=date>) a DD/MM/AAAA para el informe */
@@ -494,7 +494,7 @@ function renderTipoRow(){
 const OTRO_VALOR = '__otro__';
 
 function fieldHTML(obj, campo){
-  const {key, label, ph, type, opciones, otroLabel} = campo;
+  const {key, label, ph, type, opciones, otroLabel, otroPh} = campo;
   if(type === 'date'){
     return `<div class="field"><label for="f_${key}">${label}</label>
       <input type="date" id="f_${key}" data-key="${key}" value="${escapeAttr(obj[key]||'')}"></div>`;
@@ -511,7 +511,7 @@ function fieldHTML(obj, campo){
       </div>
       <div class="field" data-otro-wrap="${key}" ${esOtro?'':'hidden'}>
         <label for="f_${key}_otro">${escapeHtml(otroLabel || label)}</label>
-        <input id="f_${key}_otro" data-key="${key}" data-role="otro-input" value="${escapeAttr(esOtro?obj[key]:'')}" placeholder="Escribe el valor">
+        <input id="f_${key}_otro" data-key="${key}" data-role="otro-input" value="${escapeAttr(esOtro?obj[key]:'')}" placeholder="${escapeAttr(otroPh || 'Escribe el valor')}">
       </div>`;
   }
   return `<div class="field"><label for="f_${key}">${label}</label>
