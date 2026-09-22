@@ -142,6 +142,8 @@ table.repuestos{width:100%;border-collapse:collapse;}
 table.repuestos th,table.repuestos td{border:1px solid var(--border); padding:7px 8px; font-size:12.5px;}
 table.repuestos th{background:var(--surface-2); text-align:left; color:var(--text-muted); font-weight:600;}
 table.repuestos td.qty input{width:64px; text-align:center;}
+.repuesto-opcion:hover{background:var(--accent-soft);}
+.repuesto-opcion:last-child{border-bottom:none;}
 
 /* photos */
 .drop{
@@ -303,9 +305,16 @@ table.repuestos td.qty input{width:64px; text-align:center;}
 
         <div class="card" id="repuestosCard" hidden>
           <h2>Cambio de repuestos y partes</h2>
-          <div class="table-scroll">
+          <div class="field" style="position:relative;">
+            <label for="repuestoBuscar">Buscar repuesto (nombre o código de Odoo)</label>
+            <input type="text" id="repuestoBuscar" placeholder="Ej: breaker 40amp, MC4, FUS002..." autocomplete="off">
+            <div id="repuestoResultados" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:8;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);max-height:260px;overflow-y:auto;margin-top:4px;"></div>
+          </div>
+          <p class="note" id="repuestoBuscarMsg" style="margin-top:6px;"></p>
+          <button type="button" class="btn-secondary" id="btnRepuestoManual" style="margin-top:6px;">+ Repuesto no catalogado (nombre libre)</button>
+          <div class="table-scroll" style="margin-top:12px;">
             <table class="repuestos">
-              <thead><tr><th style="width:32px;">#</th><th>Repuesto / Parte</th><th style="width:80px;">Unidades</th></tr></thead>
+              <thead><tr><th style="width:32px;">#</th><th>Repuesto / Parte</th><th style="width:90px;">Código</th><th style="width:80px;">Unidades</th><th style="width:36px;"></th></tr></thead>
               <tbody id="repuestosBody"></tbody>
             </table>
           </div>
@@ -488,10 +497,12 @@ function formatFechaInforme(iso){
 /* ---------------- Estado ---------------- */
 
 let currentTipoKey = 'ssfv';
-const state = {}; // state[tipoKey] = { cliente:{}, equipo:{}, checklist:{}, repuestos:{}, observaciones, recomendaciones, fotos:[] }
+const state = {}; // state[tipoKey] = { cliente:{}, equipo:{}, checklist:{}, repuestos:[], observaciones, recomendaciones, fotos:[] }
+// repuestos es un array de {producto_odoo_id, codigo, nombre, cantidad}. producto_odoo_id es null
+// para repuestos "no catalogados" agregados a mano (fuera del buscador de productos_bodega).
 
 function freshState(){
-  return { cliente:{}, equipo:{}, checklist:{}, repuestos:{}, observaciones:'', recomendaciones:'', fotos:[] };
+  return { cliente:{}, equipo:{}, checklist:{}, repuestos:[], observaciones:'', recomendaciones:'', fotos:[] };
 }
 Object.keys(TIPOS).forEach(k => state[k] = freshState());
 
@@ -544,6 +555,18 @@ function fieldHTML(obj, campo){
 }
 function escapeAttr(v){ return String(v).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
 function escapeHtml(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* Convierte el campo repuestos guardado en Supabase (que puede venir en el formato
+   viejo {categoria: cantidad} o en el nuevo [{producto_odoo_id, codigo, nombre, cantidad}])
+   siempre al formato nuevo, para que el formulario y el buscador funcionen igual con
+   informes antiguos y nuevos. */
+function normalizarRepuestos(raw){
+  if(Array.isArray(raw)) return raw;
+  if(!raw || typeof raw !== 'object') return [];
+  return Object.entries(raw)
+    .filter(([, cantidad]) => cantidad !== '' && cantidad != null)
+    .map(([nombre, cantidad]) => ({producto_odoo_id: null, codigo: null, nombre, cantidad}));
+}
 
 // Cablea inputs/selects de un contenedor de campos hacia el objeto de estado que corresponda (cliente o equipo).
 function wireFields(container, target){
@@ -655,16 +678,105 @@ function renderChecklist(){
 
 const repuestosCard = document.getElementById('repuestosCard');
 const repuestosBody = document.getElementById('repuestosBody');
+const repuestoBuscar = document.getElementById('repuestoBuscar');
+const repuestoResultados = document.getElementById('repuestoResultados');
+const repuestoBuscarMsg = document.getElementById('repuestoBuscarMsg');
+
 function renderRepuestos(){
-  const list = tipo().repuestos;
-  if(!list){ repuestosCard.hidden = true; return; }
+  const supports = tipo().repuestos; // null (gen_control) => esta visita no registra repuestos
+  if(!supports){ repuestosCard.hidden = true; return; }
   repuestosCard.hidden = false;
-  repuestosBody.innerHTML = list.map((name, i) => {
-    const val = s().repuestos[name] || '';
-    return `<tr><td>${i+1}</td><td>${escapeHtml(name)}</td><td class="qty"><input data-rep="${escapeAttr(name)}" value="${escapeAttr(val)}" inputmode="numeric"></td></tr>`;
+  const items = s().repuestos;
+  if(!items.length){
+    repuestosBody.innerHTML = `<tr><td colspan="5" class="note" style="text-align:center;padding:14px;">Ningún repuesto agregado todavía. Búscalo arriba.</td></tr>`;
+    return;
+  }
+  repuestosBody.innerHTML = items.map((it, i) => {
+    const nombreCell = it.producto_odoo_id
+      ? escapeHtml(it.nombre)
+      : `<input data-rep-nombre="${i}" value="${escapeAttr(it.nombre)}" placeholder="Nombre del repuesto">`;
+    const etiqueta = it.producto_odoo_id ? '' : ' <span class="note">(no catalogado)</span>';
+    return `<tr>
+      <td>${i+1}</td>
+      <td>${nombreCell}${etiqueta}</td>
+      <td>${escapeHtml(it.codigo || '—')}</td>
+      <td class="qty"><input data-rep-idx="${i}" value="${escapeAttr(it.cantidad ?? '')}" inputmode="numeric"></td>
+      <td style="text-align:center;"><button type="button" class="btn-secondary btn-danger" data-rep-quitar="${i}" style="padding:4px 8px;" title="Quitar">✕</button></td>
+    </tr>`;
   }).join('');
-  repuestosBody.querySelectorAll('input[data-rep]').forEach(inp => {
-    inp.addEventListener('input', () => { s().repuestos[inp.dataset.rep] = inp.value; });
+  repuestosBody.querySelectorAll('input[data-rep-idx]').forEach(inp => {
+    inp.addEventListener('input', () => { items[Number(inp.dataset.repIdx)].cantidad = inp.value; });
+  });
+  repuestosBody.querySelectorAll('input[data-rep-nombre]').forEach(inp => {
+    inp.addEventListener('input', () => { items[Number(inp.dataset.repNombre)].nombre = inp.value; });
+  });
+  repuestosBody.querySelectorAll('[data-rep-quitar]').forEach(btn => {
+    btn.addEventListener('click', () => { items.splice(Number(btn.dataset.repQuitar), 1); renderRepuestos(); });
+  });
+}
+
+function agregarRepuesto(item){
+  s().repuestos.push(item);
+  renderRepuestos();
+}
+
+let repuestoBuscarTimer = null;
+if(repuestoBuscar){
+  repuestoBuscar.addEventListener('input', () => {
+    clearTimeout(repuestoBuscarTimer);
+    const q = repuestoBuscar.value.trim();
+    if(q.length < 2){ repuestoResultados.style.display = 'none'; repuestoResultados.innerHTML = ''; repuestoBuscarMsg.textContent = ''; return; }
+    repuestoBuscarTimer = setTimeout(() => buscarRepuesto(q), 300);
+  });
+  document.addEventListener('click', (e) => {
+    if(e.target !== repuestoBuscar && !repuestoResultados.contains(e.target)){
+      repuestoResultados.style.display = 'none';
+    }
+  });
+  document.getElementById('btnRepuestoManual').addEventListener('click', () => {
+    agregarRepuesto({producto_odoo_id:null, codigo:null, nombre:'', cantidad:'1'});
+  });
+}
+
+async function buscarRepuesto(q){
+  const qSafe = q.replace(/[,()%]/g, ' ').trim();
+  if(!qSafe){ return; }
+  repuestoBuscarMsg.textContent = 'Buscando…';
+  const {data, error} = await sb
+    .from('productos_bodega')
+    .select('odoo_product_id,codigo,nombre,categoria_odoo,stock_disponible')
+    .eq('activo', true)
+    .or(`nombre.ilike.%${qSafe}%,codigo.ilike.%${qSafe}%`)
+    .order('nombre')
+    .limit(20);
+  if(error){
+    console.error(error);
+    repuestoBuscarMsg.textContent = 'No se pudo buscar en el catálogo.';
+    return;
+  }
+  if(!data.length){
+    repuestoBuscarMsg.textContent = 'Sin resultados — si el repuesto no está en el catálogo, usa "Repuesto no catalogado".';
+    repuestoResultados.style.display = 'none';
+    repuestoResultados.innerHTML = '';
+    return;
+  }
+  repuestoBuscarMsg.textContent = '';
+  repuestoResultados.innerHTML = data.map(p => `
+    <div class="repuesto-opcion" data-add="${p.odoo_product_id}" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;">
+      <div style="font-weight:600;">${escapeHtml(p.nombre)}</div>
+      <div class="note">${escapeHtml(p.codigo || 'sin código')} · categoría: ${escapeHtml(p.categoria_odoo || '—')} · stock: ${p.stock_disponible}</div>
+    </div>`).join('');
+  repuestoResultados.style.display = 'block';
+  repuestoResultados.querySelectorAll('[data-add]').forEach(el => {
+    el.addEventListener('click', () => {
+      const p = data.find(x => String(x.odoo_product_id) === el.dataset.add);
+      if(!p) return;
+      agregarRepuesto({producto_odoo_id: p.odoo_product_id, codigo: p.codigo, nombre: p.nombre, cantidad: '1'});
+      repuestoBuscar.value = '';
+      repuestoResultados.style.display = 'none';
+      repuestoResultados.innerHTML = '';
+      repuestoBuscarMsg.textContent = '';
+    });
   });
 }
 
@@ -776,6 +888,39 @@ function getImageSize(url){
     img.src = url;
   });
 }
+function cropImageToBox(url, boxW, boxH){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = 2; // más resolución que el tamaño mostrado, para que no se vea pixelada
+      const canvas = document.createElement('canvas');
+      canvas.width = boxW * scale;
+      canvas.height = boxH * scale;
+      const ctx = canvas.getContext('2d');
+      const boxRatio = boxW / boxH;
+      const imgRatio = img.naturalWidth / img.naturalHeight;
+      let sx, sy, sw, sh;
+      if(imgRatio > boxRatio){
+        sh = img.naturalHeight;
+        sw = sh * boxRatio;
+        sx = (img.naturalWidth - sw) / 2;
+        sy = 0;
+      } else {
+        sw = img.naturalWidth;
+        sh = sw / boxRatio;
+        sx = 0;
+        sy = (img.naturalHeight - sh) / 2;
+      }
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(blob => {
+        if(!blob) return reject(new Error('No se pudo procesar la foto'));
+        blob.arrayBuffer().then(resolve).catch(reject);
+      }, 'image/png');
+    };
+    img.onerror = () => reject(new Error('No se pudo cargar la foto'));
+    img.src = url;
+  });
+}
 
 async function buildDocx(){
   const D = window.docx;
@@ -865,17 +1010,24 @@ async function buildDocx(){
     checklistBlocks = buildChecklistTable(t.checklist.items, 'i_', null, t.checklist.cols, t.checklist.perRowObs);
   }
 
-  // Repuestos table
+  // Repuestos table — soporta el formato nuevo (array de {nombre,codigo,cantidad})
+  // y el formato viejo (objeto {categoria: cantidad}) de informes generados antes del buscador.
   let repuestosBlocks = [];
   if(t.repuestos){
-    const rows = [ new D.TableRow({children:[labelCell('#'), labelCell('Cambio de Repuestos y Partes'), labelCell('Unidades')], tableHeader:true}) ];
-    t.repuestos.forEach((name, i) => {
-      rows.push(new D.TableRow({children:[ valueCell(String(i+1)), valueCell(name), valueCell(st.repuestos[name]||'') ]}));
-    });
-    repuestosBlocks = [
-      txt('Cambio de Repuestos y Partes', {bold:true, size:19}),
-      new D.Table({width:{size:60, type:D.WidthType.PERCENTAGE}, rows})
-    ];
+    const itemsRaw = st.repuestos;
+    const items = Array.isArray(itemsRaw)
+      ? itemsRaw.filter(it => it && it.nombre)
+      : Object.entries(itemsRaw || {}).filter(([, v]) => v !== '' && v != null).map(([nombre, cantidad]) => ({nombre, cantidad, codigo:null}));
+    if(items.length){
+      const rows = [ new D.TableRow({children:[labelCell('#'), labelCell('Cambio de Repuestos y Partes'), labelCell('Código'), labelCell('Unidades')], tableHeader:true}) ];
+      items.forEach((it, i) => {
+        rows.push(new D.TableRow({children:[ valueCell(String(i+1)), valueCell(it.nombre), valueCell(it.codigo || '—'), valueCell(String(it.cantidad ?? '')) ]}));
+      });
+      repuestosBlocks = [
+        txt('Cambio de Repuestos y Partes', {bold:true, size:19}),
+        new D.Table({width:{size:70, type:D.WidthType.PERCENTAGE}, rows})
+      ];
+    }
   }
 
   // Observaciones / Recomendaciones
@@ -891,21 +1043,23 @@ async function buildDocx(){
   // Fotos
   const photoParas = [ txt('ANEXO FOTOGRÁFICO', {bold:true, size:22}) ];
   if(st.fotos.length){
-    const MAXW = 200;
+    const CELL_W = 200; // ancho de cada foto en el anexo
+    const CELL_H = 150; // alto FIJO — igual para todas, sin importar la proporción original
+    const noBorders = {top:{style:D.BorderStyle.NONE},bottom:{style:D.BorderStyle.NONE},left:{style:D.BorderStyle.NONE},right:{style:D.BorderStyle.NONE}};
     const imageCells = [];
     for(const f of st.fotos){
-      const buf = await fileToArrayBuffer(f.file);
-      const size = await getImageSize(f.url);
-      const w = MAXW;
-      const h = Math.round(MAXW * (size.h / size.w));
-      const img = new D.ImageRun({ data: buf, transformation:{width:w, height:h}, type: (f.file.type.includes('png') ? 'png' : 'jpg') });
-      imageCells.push(new D.TableCell({ children:[ new D.Paragraph({alignment:D.AlignmentType.CENTER, children:[img]}) ], borders:{top:{style:D.BorderStyle.NONE},bottom:{style:D.BorderStyle.NONE},left:{style:D.BorderStyle.NONE},right:{style:D.BorderStyle.NONE}} }));
+      const cropped = await cropImageToBox(f.url, CELL_W, CELL_H);
+      const img = new D.ImageRun({ data: cropped, transformation:{width:CELL_W, height:CELL_H}, type:'png' });
+      imageCells.push(new D.TableCell({
+        width:{size:33.33, type:D.WidthType.PERCENTAGE},
+        children:[ new D.Paragraph({alignment:D.AlignmentType.CENTER, children:[img]}) ],
+        borders: noBorders
+      }));
     }
     const perRow = 3;
     const photoRows = [];
     for(let i=0;i<imageCells.length;i+=perRow){
-      let rowCells = imageCells.slice(i, i+perRow);
-      while(rowCells.length < perRow){ rowCells.push(new D.TableCell({children:[new D.Paragraph('')], borders:{top:{style:D.BorderStyle.NONE},bottom:{style:D.BorderStyle.NONE},left:{style:D.BorderStyle.NONE},right:{style:D.BorderStyle.NONE}}})); }
+      const rowCells = imageCells.slice(i, i+perRow); // SIN relleno: la fila final incompleta no lleva celdas vacías
       photoRows.push(new D.TableRow({children: rowCells}));
     }
     photoParas.push(new D.Table({width:{size:100, type:D.WidthType.PERCENTAGE}, rows: photoRows}));
@@ -1220,6 +1374,7 @@ function renderGeneradosList(){
 
 /* ---------------- Auditoría de repuestos ---------------- */
 let auditoriaCache = [];
+let auditoriaBodega = new Map(); // odoo_product_id -> {codigo, nombre, stock_disponible}
 let auditoriaCargada = false;
 let auditoriaTipoFiltro = 'todos';
 
@@ -1243,20 +1398,27 @@ async function renderAuditoria(){
   const resumenEl = document.getElementById('auditoriaResumen');
   if(!resumenEl) return;
   resumenEl.innerHTML = '<p class="note">Cargando…</p>';
-  const {data, error} = await sb
-    .from('informes_mantenimiento')
-    .select('id,tipo_servicio,cliente,tecnico,fecha,estado,repuestos,generado_at')
-    .eq('estado', 'generado')
-    .not('repuestos', 'is', null)
-    .order('fecha', {ascending:false})
-    .limit(500);
+  const [informesRes, bodegaRes] = await Promise.all([
+    sb.from('informes_mantenimiento')
+      .select('id,tipo_servicio,cliente,tecnico,fecha,estado,repuestos,generado_at')
+      .eq('estado', 'generado')
+      .not('repuestos', 'is', null)
+      .order('fecha', {ascending:false})
+      .limit(500),
+    sb.from('productos_bodega')
+      .select('odoo_product_id,codigo,nombre,stock_disponible')
+      .eq('activo', true)
+      .limit(2000)
+  ]);
   auditoriaCargada = true;
-  if(error){
-    console.error(error);
+  if(informesRes.error){
+    console.error(informesRes.error);
     resumenEl.innerHTML = '<p class="note" style="color:var(--danger)">No se pudo cargar la auditoría.</p>';
     return;
   }
-  auditoriaCache = data || [];
+  if(bodegaRes.error) console.error(bodegaRes.error);
+  auditoriaCache = informesRes.data || [];
+  auditoriaBodega = new Map((bodegaRes.data || []).map(p => [p.odoo_product_id, p]));
   renderAuditoriaTipoRow();
   renderAuditoriaResumen();
 }
@@ -1294,23 +1456,29 @@ function renderAuditoriaResumen(){
     return;
   }
 
-  const porRepuesto = new Map(); // nombre -> {total, servicios}
+  // clave de agrupación: por producto_odoo_id cuando el repuesto está vinculado al catálogo
+  // (nuevo formato), o por nombre normalizado para repuestos "no catalogados" y para los
+  // informes viejos (formato objeto, sin producto_odoo_id) que se dejaron sin migrar.
+  const porRepuesto = new Map(); // clave -> {nombre, codigo, producto_odoo_id, total, servicios}
   const porTecnico = new Map(); // tecnico -> total unidades
   const porCliente = new Map(); // cliente -> total unidades
   const alertas = []; // {cliente, tecnico, fecha, tipo, item, valor}
 
   filtrados.forEach(d => {
-    const rep = d.repuestos || {};
-    Object.entries(rep).forEach(([item, valorCrudo]) => {
-      const cantidad = parseCantidadRepuesto(valorCrudo);
+    const items = normalizarRepuestos(d.repuestos);
+    items.forEach(it => {
+      const nombre = (it.nombre || '').trim();
+      if(!nombre) return;
+      const cantidad = parseCantidadRepuesto(it.cantidad);
       if(cantidad === null){
-        alertas.push({cliente:d.cliente, tecnico:d.tecnico, fecha:d.fecha, tipo:d.tipo_servicio, item, valor:valorCrudo});
+        alertas.push({cliente:d.cliente, tecnico:d.tecnico, fecha:d.fecha, tipo:d.tipo_servicio, item:nombre, valor:it.cantidad});
         return;
       }
       if(cantidad === 0) return;
-      const rEntry = porRepuesto.get(item) || {total:0, servicios:0};
+      const key = it.producto_odoo_id ? `id:${it.producto_odoo_id}` : `n:${nombre.toLowerCase()}`;
+      const rEntry = porRepuesto.get(key) || {nombre, codigo: it.codigo || null, producto_odoo_id: it.producto_odoo_id || null, total:0, servicios:0};
       rEntry.total += cantidad; rEntry.servicios += 1;
-      porRepuesto.set(item, rEntry);
+      porRepuesto.set(key, rEntry);
       const tKey = d.tecnico || '(sin técnico)';
       porTecnico.set(tKey, (porTecnico.get(tKey) || 0) + cantidad);
       const cKey = d.cliente || '(sin cliente)';
@@ -1318,15 +1486,29 @@ function renderAuditoriaResumen(){
     });
   });
 
-  const filasRepuesto = [...porRepuesto.entries()].sort((a,b) => b[1].total - a[1].total);
+  const filasRepuesto = [...porRepuesto.values()].sort((a,b) => b.total - a.total);
   const filasTecnico = [...porTecnico.entries()].sort((a,b) => b[1] - a[1]);
   const filasCliente = [...porCliente.entries()].sort((a,b) => b[1] - a[1]).slice(0, 15);
 
   const tablaRepuesto = filasRepuesto.length ? `
     <table class="repuestos" style="margin-top:10px;">
-      <thead><tr><th>Repuesto / Parte</th><th style="width:110px;">Unidades</th><th style="width:110px;">Servicios</th></tr></thead>
-      <tbody>${filasRepuesto.map(([item, v]) => `<tr><td>${escapeHtml(item)}</td><td>${v.total}</td><td>${v.servicios}</td></tr>`).join('')}</tbody>
+      <thead><tr><th>Repuesto / Parte</th><th style="width:100px;">Código</th><th style="width:100px;">Consumo</th><th style="width:100px;">Servicios</th><th style="width:110px;">Stock bodega</th></tr></thead>
+      <tbody>${filasRepuesto.map(v => {
+        const bodegaInfo = v.producto_odoo_id ? auditoriaBodega.get(v.producto_odoo_id) : null;
+        const codigo = v.codigo || bodegaInfo?.codigo || '—';
+        let stockCell = '<span class="note">no vinculado</span>';
+        let rowStyle = '';
+        if(bodegaInfo){
+          const stock = Number(bodegaInfo.stock_disponible) || 0;
+          const bajo = stock < v.total;
+          stockCell = bajo ? `<span style="color:var(--danger);font-weight:600;">${stock} ⚠</span>` : `${stock}`;
+          if(bajo) rowStyle = ' style="background:var(--accent-soft);"';
+        }
+        return `<tr${rowStyle}><td>${escapeHtml(v.nombre)}</td><td>${escapeHtml(codigo)}</td><td>${v.total}</td><td>${v.servicios}</td><td>${stockCell}</td></tr>`;
+      }).join('')}</tbody>
     </table>` : '<p class="note">Sin unidades registradas en este filtro.</p>';
+  const hayNoVinculados = filasRepuesto.some(v => !v.producto_odoo_id);
+  const tablaRepuestoNota = hayNoVinculados ? '<p class="note" style="margin-top:6px;">"no vinculado": repuesto sin código de Odoo (informe anterior al catálogo, o registrado como "no catalogado"). No se puede comparar contra el stock.</p>' : '';
 
   const tablaTecnico = filasTecnico.length ? `
     <table class="repuestos" style="margin-top:10px;">
@@ -1341,8 +1523,9 @@ function renderAuditoriaResumen(){
     </table>` : '';
 
   resumenEl.innerHTML = `
-    <h3 style="font:600 13px 'Sora';margin-bottom:0;">Total por repuesto / parte</h3>
+    <h3 style="font:600 13px 'Sora';margin-bottom:0;">Total por repuesto / parte (consumo del período vs. stock actual en bodega)</h3>
     ${tablaRepuesto}
+    ${tablaRepuestoNota}
     <h3 style="font:600 13px 'Sora';margin:16px 0 0;">Total por técnico</h3>
     ${tablaTecnico}
     <h3 style="font:600 13px 'Sora';margin:16px 0 0;">Top clientes por unidades reportadas</h3>
@@ -1468,7 +1651,7 @@ async function cargarBorrador(id){
       cliente: {cliente: draft.cliente, direccion: draft.direccion, tecnico: draft.tecnico, fecha: draft.fecha},
       equipo: draft.equipo || {},
       checklist: draft.checklist || {},
-      repuestos: draft.repuestos || {},
+      repuestos: normalizarRepuestos(draft.repuestos),
       observaciones: draft.observaciones || '',
       recomendaciones: draft.recomendaciones || '',
       fotos,
@@ -1495,7 +1678,7 @@ async function cargarGenerado(id){
       cliente: {cliente: draft.cliente, direccion: draft.direccion, tecnico: draft.tecnico, fecha: draft.fecha},
       equipo: draft.equipo || {},
       checklist: draft.checklist || {},
-      repuestos: draft.repuestos || {},
+      repuestos: normalizarRepuestos(draft.repuestos),
       observaciones: draft.observaciones || '',
       recomendaciones: draft.recomendaciones || '',
       fotos: [],
