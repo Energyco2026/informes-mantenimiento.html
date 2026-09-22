@@ -234,6 +234,7 @@ table.repuestos td.qty input{width:64px; text-align:center;}
     <nav class="oficina-nav" data-vista="oficina">
       <button type="button" class="nav-item" id="navPendientes" aria-pressed="true">📋 Pendientes <span class="nav-badge" id="badgePendientes">0</span></button>
       <button type="button" class="nav-item" id="navGenerados" aria-pressed="false">✅ Generados <span class="nav-badge" id="badgeGenerados">0</span></button>
+      <button type="button" class="nav-item" id="navAuditoria" aria-pressed="false">📊 Auditoría</button>
     </nav>
 
     <div class="main-col">
@@ -254,6 +255,30 @@ table.repuestos td.qty input{width:64px; text-align:center;}
         <div class="tipo-row" id="generadosTipoRow" style="margin:10px 0 0;"></div>
         <div id="generadosList" style="display:flex;flex-direction:column;gap:8px;margin-top:10px;"></div>
         <p class="note" style="margin-top:10px;">Historial de informes ya generados (las fotos ya no están aquí — quedaron incrustadas en el Word y subidas a SharePoint).</p>
+      </div>
+
+      <div class="card" id="auditoriaCard" data-vista="oficina" hidden>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+          <h2 style="margin-bottom:0;">Auditoría de repuestos</h2>
+          <span class="note" id="auditoriaCount"></span>
+        </div>
+        <div class="tipo-row" id="auditoriaTipoRow" style="margin:10px 0 0;"></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:flex-end;">
+          <div class="field" style="flex:1;min-width:140px;">
+            <label for="auditoriaDesde">Desde</label>
+            <input type="date" id="auditoriaDesde">
+          </div>
+          <div class="field" style="flex:1;min-width:140px;">
+            <label for="auditoriaHasta">Hasta</label>
+            <input type="date" id="auditoriaHasta">
+          </div>
+          <button type="button" class="btn-secondary" id="btnAuditoriaLimpiarFiltro">Limpiar fechas</button>
+        </div>
+
+        <div id="auditoriaResumen" style="margin-top:14px;"></div>
+        <div id="auditoriaAlertas" style="margin-top:14px;"></div>
+
+        <p class="note" style="margin-top:10px;">Suma de unidades reportadas por repuesto/parte en los informes ya generados. Estos totales todavía no se comparan contra el inventario de bodega (pendiente sincronizar bodega desde Odoo a Supabase).</p>
       </div>
 
       <div id="formularioSection">
@@ -1193,6 +1218,156 @@ function renderGeneradosList(){
   }));
 }
 
+/* ---------------- Auditoría de repuestos ---------------- */
+let auditoriaCache = [];
+let auditoriaCargada = false;
+let auditoriaTipoFiltro = 'todos';
+
+function renderAuditoriaTipoRow(){
+  const row = document.getElementById('auditoriaTipoRow');
+  if(!row) return;
+  row.innerHTML = '';
+  const opciones = [['todos', 'Todas'], ...Object.entries(TIPOS).filter(([,t]) => t.repuestos).map(([key, t]) => [key, t.short])];
+  opciones.forEach(([key, label]) => {
+    const b = document.createElement('button');
+    b.className = 'tipo-chip';
+    b.type = 'button';
+    b.textContent = label;
+    b.setAttribute('aria-pressed', key === auditoriaTipoFiltro ? 'true' : 'false');
+    b.addEventListener('click', () => { auditoriaTipoFiltro = key; renderAuditoriaResumen(); });
+    row.appendChild(b);
+  });
+}
+
+async function renderAuditoria(){
+  const resumenEl = document.getElementById('auditoriaResumen');
+  if(!resumenEl) return;
+  resumenEl.innerHTML = '<p class="note">Cargando…</p>';
+  const {data, error} = await sb
+    .from('informes_mantenimiento')
+    .select('id,tipo_servicio,cliente,tecnico,fecha,estado,repuestos,generado_at')
+    .eq('estado', 'generado')
+    .not('repuestos', 'is', null)
+    .order('fecha', {ascending:false})
+    .limit(500);
+  auditoriaCargada = true;
+  if(error){
+    console.error(error);
+    resumenEl.innerHTML = '<p class="note" style="color:var(--danger)">No se pudo cargar la auditoría.</p>';
+    return;
+  }
+  auditoriaCache = data || [];
+  renderAuditoriaTipoRow();
+  renderAuditoriaResumen();
+}
+
+/* Interpreta un valor de cantidad guardado como texto libre en el campo de repuestos.
+   Devuelve un entero >= 0 si es válido, o null si no lo es (p.ej. alguien escribió una palabra en vez de un número). */
+function parseCantidadRepuesto(val){
+  if(val === null || val === undefined || val === '') return 0;
+  const n = Number(String(val).trim());
+  if(!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+function renderAuditoriaResumen(){
+  const resumenEl = document.getElementById('auditoriaResumen');
+  const alertasEl = document.getElementById('auditoriaAlertas');
+  const countEl = document.getElementById('auditoriaCount');
+  if(!resumenEl) return;
+
+  const desde = document.getElementById('auditoriaDesde').value;
+  const hasta = document.getElementById('auditoriaHasta').value;
+
+  const filtrados = auditoriaCache.filter(d => {
+    if(auditoriaTipoFiltro !== 'todos' && d.tipo_servicio !== auditoriaTipoFiltro) return false;
+    if(desde && (!d.fecha || d.fecha < desde)) return false;
+    if(hasta && (!d.fecha || d.fecha > hasta)) return false;
+    return true;
+  });
+
+  countEl.textContent = filtrados.length ? `${filtrados.length} informe(s) con repuestos` : '';
+
+  if(!filtrados.length){
+    resumenEl.innerHTML = `<p class="note">${auditoriaCache.length ? 'No hay informes con repuestos en este filtro.' : 'Todavía no hay informes generados con repuestos registrados.'}</p>`;
+    if(alertasEl) alertasEl.innerHTML = '';
+    return;
+  }
+
+  const porRepuesto = new Map(); // nombre -> {total, servicios}
+  const porTecnico = new Map(); // tecnico -> total unidades
+  const porCliente = new Map(); // cliente -> total unidades
+  const alertas = []; // {cliente, tecnico, fecha, tipo, item, valor}
+
+  filtrados.forEach(d => {
+    const rep = d.repuestos || {};
+    Object.entries(rep).forEach(([item, valorCrudo]) => {
+      const cantidad = parseCantidadRepuesto(valorCrudo);
+      if(cantidad === null){
+        alertas.push({cliente:d.cliente, tecnico:d.tecnico, fecha:d.fecha, tipo:d.tipo_servicio, item, valor:valorCrudo});
+        return;
+      }
+      if(cantidad === 0) return;
+      const rEntry = porRepuesto.get(item) || {total:0, servicios:0};
+      rEntry.total += cantidad; rEntry.servicios += 1;
+      porRepuesto.set(item, rEntry);
+      const tKey = d.tecnico || '(sin técnico)';
+      porTecnico.set(tKey, (porTecnico.get(tKey) || 0) + cantidad);
+      const cKey = d.cliente || '(sin cliente)';
+      porCliente.set(cKey, (porCliente.get(cKey) || 0) + cantidad);
+    });
+  });
+
+  const filasRepuesto = [...porRepuesto.entries()].sort((a,b) => b[1].total - a[1].total);
+  const filasTecnico = [...porTecnico.entries()].sort((a,b) => b[1] - a[1]);
+  const filasCliente = [...porCliente.entries()].sort((a,b) => b[1] - a[1]).slice(0, 15);
+
+  const tablaRepuesto = filasRepuesto.length ? `
+    <table class="repuestos" style="margin-top:10px;">
+      <thead><tr><th>Repuesto / Parte</th><th style="width:110px;">Unidades</th><th style="width:110px;">Servicios</th></tr></thead>
+      <tbody>${filasRepuesto.map(([item, v]) => `<tr><td>${escapeHtml(item)}</td><td>${v.total}</td><td>${v.servicios}</td></tr>`).join('')}</tbody>
+    </table>` : '<p class="note">Sin unidades registradas en este filtro.</p>';
+
+  const tablaTecnico = filasTecnico.length ? `
+    <table class="repuestos" style="margin-top:10px;">
+      <thead><tr><th>Técnico</th><th style="width:110px;">Unidades</th></tr></thead>
+      <tbody>${filasTecnico.map(([t, total]) => `<tr><td>${escapeHtml(t)}</td><td>${total}</td></tr>`).join('')}</tbody>
+    </table>` : '';
+
+  const tablaCliente = filasCliente.length ? `
+    <table class="repuestos" style="margin-top:10px;">
+      <thead><tr><th>Cliente</th><th style="width:110px;">Unidades</th></tr></thead>
+      <tbody>${filasCliente.map(([c, total]) => `<tr><td>${escapeHtml(c)}</td><td>${total}</td></tr>`).join('')}</tbody>
+    </table>` : '';
+
+  resumenEl.innerHTML = `
+    <h3 style="font:600 13px 'Sora';margin-bottom:0;">Total por repuesto / parte</h3>
+    ${tablaRepuesto}
+    <h3 style="font:600 13px 'Sora';margin:16px 0 0;">Total por técnico</h3>
+    ${tablaTecnico}
+    <h3 style="font:600 13px 'Sora';margin:16px 0 0;">Top clientes por unidades reportadas</h3>
+    ${tablaCliente}
+  `;
+
+  if(alertasEl){
+    if(!alertas.length){
+      alertasEl.innerHTML = '';
+    } else {
+      alertasEl.innerHTML = `
+        <div class="card" style="background:var(--accent-soft);border-color:var(--warn);">
+          <h2 style="color:var(--warn);">⚠ Valores no numéricos (${alertas.length}) — no se sumaron</h2>
+          <div class="table-scroll">
+            <table class="repuestos">
+              <thead><tr><th>Cliente</th><th>Técnico</th><th>Fecha</th><th>Repuesto</th><th>Valor escrito</th></tr></thead>
+              <tbody>${alertas.map(a => `<tr><td>${escapeHtml(a.cliente||'—')}</td><td>${escapeHtml(a.tecnico||'—')}</td><td>${a.fecha?formatFechaInforme(a.fecha):'—'}</td><td>${escapeHtml(a.item)}</td><td>${escapeHtml(String(a.valor))}</td></tr>`).join('')}</tbody>
+            </table>
+          </div>
+          <p class="note" style="margin-top:8px;">Alguien escribió texto en vez de un número en el campo de unidades (ej. "CABLE" en lugar de una cantidad). Corrígelo desde "Generados → Editar" para que cuente en los totales.</p>
+        </div>`;
+    }
+  }
+}
+
 // -------- Pestañas del panel de oficina (Pendientes / Generados / Formulario) --------
 let oficinaTab = 'pendientes';
 function setOficinaTab(tab){
@@ -1200,22 +1375,35 @@ function setOficinaTab(tab){
   oficinaTab = tab;
   const pendientesCard = document.getElementById('pendientesCard');
   const generadosCard = document.getElementById('generadosCard');
+  const auditoriaCard = document.getElementById('auditoriaCard');
   const formularioSection = document.getElementById('formularioSection');
   const volverWrap = document.getElementById('volverPendientesWrap');
   const navP = document.getElementById('navPendientes');
   const navG = document.getElementById('navGenerados');
+  const navA = document.getElementById('navAuditoria');
   pendientesCard.hidden = tab !== 'pendientes';
   generadosCard.hidden = tab !== 'generados';
+  auditoriaCard.hidden = tab !== 'auditoria';
   formularioSection.hidden = tab !== 'formulario';
   volverWrap.hidden = tab !== 'formulario';
   navP.setAttribute('aria-pressed', tab === 'pendientes');
   navG.setAttribute('aria-pressed', tab === 'generados');
+  navA.setAttribute('aria-pressed', tab === 'auditoria');
   if(tab === 'generados' && !generadosCargados) renderGenerados();
+  if(tab === 'auditoria' && !auditoriaCargada) renderAuditoria();
 }
 if(VISTA === 'oficina'){
   document.getElementById('navPendientes').addEventListener('click', () => setOficinaTab('pendientes'));
   document.getElementById('navGenerados').addEventListener('click', () => setOficinaTab('generados'));
+  document.getElementById('navAuditoria').addEventListener('click', () => setOficinaTab('auditoria'));
   document.getElementById('linkVolverPendientes').addEventListener('click', (e) => { e.preventDefault(); setOficinaTab('pendientes'); });
+  document.getElementById('auditoriaDesde').addEventListener('change', renderAuditoriaResumen);
+  document.getElementById('auditoriaHasta').addEventListener('change', renderAuditoriaResumen);
+  document.getElementById('btnAuditoriaLimpiarFiltro').addEventListener('click', () => {
+    document.getElementById('auditoriaDesde').value = '';
+    document.getElementById('auditoriaHasta').value = '';
+    renderAuditoriaResumen();
+  });
   setOficinaTab('pendientes');
 }
 
