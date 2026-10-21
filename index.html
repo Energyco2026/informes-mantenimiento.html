@@ -229,20 +229,20 @@ table.repuestos td.qty input{width:64px; text-align:center;}
     </div>
   </div>
 
-  <div class="tipo-scroll" data-vista="tecnico oficina">
+  <div class="tipo-scroll" data-vista="tecnico oficina gerencia">
     <div class="tipo-row" id="tipoRow" role="tablist" aria-label="Tipo de servicio"></div>
   </div>
 
   <div class="main-layout">
-    <nav class="oficina-nav" data-vista="oficina contabilidad">
-      <button type="button" class="nav-item" id="navPendientes" data-vista="oficina" aria-pressed="true">📋 Pendientes <span class="nav-badge" id="badgePendientes">0</span></button>
-      <button type="button" class="nav-item" id="navGenerados" data-vista="oficina" aria-pressed="false">✅ Generados <span class="nav-badge" id="badgeGenerados">0</span></button>
-      <button type="button" class="nav-item" id="navMateriales" data-vista="contabilidad" aria-pressed="false">🧾 Materiales por visita</button>
-      <button type="button" class="nav-item" id="navAuditoria" data-vista="contabilidad" aria-pressed="false">📊 Auditoría</button>
+    <nav class="oficina-nav" data-vista="oficina contabilidad gerencia">
+      <button type="button" class="nav-item" id="navPendientes" data-vista="oficina gerencia" aria-pressed="true">📋 Pendientes <span class="nav-badge" id="badgePendientes">0</span></button>
+      <button type="button" class="nav-item" id="navGenerados" data-vista="oficina gerencia" aria-pressed="false">✅ Generados <span class="nav-badge" id="badgeGenerados">0</span></button>
+      <button type="button" class="nav-item" id="navMateriales" data-vista="contabilidad gerencia" aria-pressed="false">🧾 Materiales por visita</button>
+      <button type="button" class="nav-item" id="navAuditoria" data-vista="gerencia" aria-pressed="false">📊 Auditoría</button>
     </nav>
 
     <div class="main-col">
-      <div class="card" id="pendientesCard" data-vista="oficina">
+      <div class="card" id="pendientesCard" data-vista="oficina gerencia">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
           <h2 style="margin-bottom:0;">Pendientes por generar</h2>
           <span class="note" id="pendientesCount"></span>
@@ -251,7 +251,7 @@ table.repuestos td.qty input{width:64px; text-align:center;}
         <p class="note" style="margin-top:10px;">Aquí aparecen los informes que el técnico ya guardó desde el campo y que todavía no se han generado. Da clic en "Cargar y revisar" para completarlos y generar el Word.</p>
       </div>
 
-      <div class="card" id="generadosCard" data-vista="oficina" hidden>
+      <div class="card" id="generadosCard" data-vista="oficina gerencia" hidden>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
           <h2 style="margin-bottom:0;">Informes ya generados</h2>
           <span class="note" id="generadosCount"></span>
@@ -261,7 +261,7 @@ table.repuestos td.qty input{width:64px; text-align:center;}
         <p class="note" style="margin-top:10px;">Historial de informes ya generados (las fotos ya no están aquí — quedaron incrustadas en el Word y subidas a SharePoint).</p>
       </div>
 
-      <div class="card" id="materialesCard" data-vista="contabilidad" hidden>
+      <div class="card" id="materialesCard" data-vista="contabilidad gerencia" hidden>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
           <h2 style="margin-bottom:0;">Materiales usados por visita</h2>
           <span class="note" id="materialesCount"></span>
@@ -285,7 +285,7 @@ table.repuestos td.qty input{width:64px; text-align:center;}
         <p class="note" style="margin-top:10px;">Solo informes ya generados que registraron materiales. El Excel trae una fila por material con la columna "Costo unitario" vacía: llénala con el costo de Odoo y el total por visita se calcula solo.</p>
       </div>
 
-      <div class="card" id="auditoriaCard" data-vista="contabilidad" hidden>
+      <div class="card" id="auditoriaCard" data-vista="gerencia" hidden>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
           <h2 style="margin-bottom:0;">Auditoría de repuestos</h2>
           <span class="note" id="auditoriaCount"></span>
@@ -309,8 +309,8 @@ table.repuestos td.qty input{width:64px; text-align:center;}
         <p class="note" style="margin-top:10px;">Suma de unidades reportadas por repuesto/parte en los informes ya generados. Estos totales todavía no se comparan contra el inventario de bodega (pendiente sincronizar bodega desde Odoo a Supabase).</p>
       </div>
 
-      <div id="formularioSection" data-vista="tecnico oficina">
-        <p class="note" id="volverPendientesWrap" data-vista="oficina" hidden>
+      <div id="formularioSection" data-vista="tecnico oficina gerencia">
+        <p class="note" id="volverPendientesWrap" data-vista="oficina gerencia" hidden>
           <a href="#" id="linkVolverPendientes" style="color:var(--accent-dark);font-weight:600;text-decoration:none;">← Volver a pendientes</a>
         </p>
 
@@ -399,7 +399,7 @@ table.repuestos td.qty input{width:64px; text-align:center;}
     <span class="status-msg" id="statusMsg"></span>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
       <button type="button" class="btn-secondary" id="btnGuardar" data-vista="tecnico" title="Lo usa el técnico / quien captura los datos en campo">💾 Guardar información</button>
-      <button type="button" class="btn-generar" id="btnGenerar" data-vista="oficina" title="Lo usa la persona de oficina para producir el Word final">📄 Generar informe (.docx)</button>
+      <button type="button" class="btn-generar" id="btnGenerar" data-vista="oficina gerencia" title="Lo usa la persona de oficina para producir el Word final">📄 Generar informe (.docx)</button>
     </div>
   </div>
 </div>
@@ -414,11 +414,13 @@ document.getElementById("logoImg").src = LOGO_DATA_URI;
 const SUPABASE_URL = "https://wiqnfnlnsdnkxgshchjg.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndpcW5mbmxuc2Rua3hnc2hjaGpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzNzg3NTYsImV4cCI6MjEwMTk1NDc1Nn0.nhpxj8lF0A7aFa-xTEqDrIWY04y_MI15ZQyQ3L7VfHQ";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-// ?vista=oficina → María Isabel (genera informes). ?vista=contabilidad → Ximena y gerencia (materiales y auditoría).
+// ?vista=oficina → María Isabel (Pendientes y Generados). ?vista=contabilidad → Ximena (solo Materiales).
+// ?vista=gerencia → Shirley (las 4 pestañas: Pendientes, Generados, Materiales y Auditoría).
 // Sin parámetro → técnico. OJO: es separación de pantallas por link, no un control de acceso con contraseña.
 const VISTA_PARAM = new URLSearchParams(location.search).get('vista');
-const VISTA = VISTA_PARAM === 'oficina' ? 'oficina' : (VISTA_PARAM === 'contabilidad' ? 'contabilidad' : 'tecnico');
-const VISTA_NOMBRE = {oficina:'Oficina', contabilidad:'Contabilidad', tecnico:'Técnico'}[VISTA];
+const VISTA = ['oficina','contabilidad','gerencia'].includes(VISTA_PARAM) ? VISTA_PARAM : 'tecnico';
+const VISTA_NOMBRE = {oficina:'Oficina', contabilidad:'Contabilidad', gerencia:'Gerencia', tecnico:'Técnico'}[VISTA];
+const GENERA_INFORMES = VISTA === 'oficina' || VISTA === 'gerencia'; // vistas que cargan pendientes y generan el Word
 document.title = 'Generador de Informes — ' + VISTA_NOMBRE;
 const CORREO_CONTABILIDAD = 'contabilidad@energycontrolsa.com';
 const FOTOS_BUCKET = "informes-fotos-temp";
@@ -587,7 +589,7 @@ function renderTipoRow(){
     b.type = 'button';
     b.textContent = t.short;
     b.setAttribute('aria-pressed', key === currentTipoKey ? 'true' : 'false');
-    b.addEventListener('click', () => { currentTipoKey = key; registroActualId = null; fotosMetaActual = null; renderAll(); if(VISTA === 'oficina') setOficinaTab('formulario'); });
+    b.addEventListener('click', () => { currentTipoKey = key; registroActualId = null; fotosMetaActual = null; renderAll(); if(GENERA_INFORMES) setOficinaTab('formulario'); });
     tipoRow.appendChild(b);
   });
 }
@@ -1905,7 +1907,7 @@ function descargarExcelMateriales(){
 // -------- Pestañas del panel de oficina (Pendientes / Generados / Formulario) --------
 let oficinaTab = 'pendientes';
 function setOficinaTab(tab){
-  if(VISTA !== 'oficina' && VISTA !== 'contabilidad') return;
+  if(VISTA === 'tecnico') return;
   oficinaTab = tab;
   const pendientesCard = document.getElementById('pendientesCard');
   const generadosCard = document.getElementById('generadosCard');
@@ -1931,7 +1933,7 @@ function setOficinaTab(tab){
   if(tab === 'auditoria' && !auditoriaCargada) renderAuditoria();
   if(tab === 'materiales' && !materialesCargados) renderMateriales();
 }
-if(VISTA === 'oficina' || VISTA === 'contabilidad'){
+if(VISTA !== 'tecnico'){
   document.getElementById('navMateriales').addEventListener('click', () => setOficinaTab('materiales'));
   ['materialesDesde','materialesHasta'].forEach(id => document.getElementById(id).addEventListener('change', renderMaterialesLista));
   document.getElementById('materialesBuscar').addEventListener('input', renderMaterialesLista);
