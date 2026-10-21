@@ -2,6 +2,7 @@
 <meta charset="utf-8">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Work+Sans:wght@400;500;600;700&display=swap">
 <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
@@ -228,15 +229,16 @@ table.repuestos td.qty input{width:64px; text-align:center;}
     </div>
   </div>
 
-  <div class="tipo-scroll">
+  <div class="tipo-scroll" data-vista="tecnico oficina">
     <div class="tipo-row" id="tipoRow" role="tablist" aria-label="Tipo de servicio"></div>
   </div>
 
   <div class="main-layout">
-    <nav class="oficina-nav" data-vista="oficina">
-      <button type="button" class="nav-item" id="navPendientes" aria-pressed="true">📋 Pendientes <span class="nav-badge" id="badgePendientes">0</span></button>
-      <button type="button" class="nav-item" id="navGenerados" aria-pressed="false">✅ Generados <span class="nav-badge" id="badgeGenerados">0</span></button>
-      <button type="button" class="nav-item" id="navAuditoria" aria-pressed="false">📊 Auditoría</button>
+    <nav class="oficina-nav" data-vista="oficina contabilidad">
+      <button type="button" class="nav-item" id="navPendientes" data-vista="oficina" aria-pressed="true">📋 Pendientes <span class="nav-badge" id="badgePendientes">0</span></button>
+      <button type="button" class="nav-item" id="navGenerados" data-vista="oficina" aria-pressed="false">✅ Generados <span class="nav-badge" id="badgeGenerados">0</span></button>
+      <button type="button" class="nav-item" id="navMateriales" data-vista="contabilidad" aria-pressed="false">🧾 Materiales por visita</button>
+      <button type="button" class="nav-item" id="navAuditoria" data-vista="contabilidad" aria-pressed="false">📊 Auditoría</button>
     </nav>
 
     <div class="main-col">
@@ -259,7 +261,31 @@ table.repuestos td.qty input{width:64px; text-align:center;}
         <p class="note" style="margin-top:10px;">Historial de informes ya generados (las fotos ya no están aquí — quedaron incrustadas en el Word y subidas a SharePoint).</p>
       </div>
 
-      <div class="card" id="auditoriaCard" data-vista="oficina" hidden>
+      <div class="card" id="materialesCard" data-vista="contabilidad" hidden>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+          <h2 style="margin-bottom:0;">Materiales usados por visita</h2>
+          <span class="note" id="materialesCount"></span>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:flex-end;">
+          <div class="field" style="flex:1;min-width:140px;">
+            <label for="materialesDesde">Desde</label>
+            <input type="date" id="materialesDesde">
+          </div>
+          <div class="field" style="flex:1;min-width:140px;">
+            <label for="materialesHasta">Hasta</label>
+            <input type="date" id="materialesHasta">
+          </div>
+          <div class="field" style="flex:2;min-width:180px;">
+            <label for="materialesBuscar">Cliente o material</label>
+            <input type="text" id="materialesBuscar" placeholder="Escribe para filtrar">
+          </div>
+          <button type="button" class="btn-secondary" id="btnMaterialesExcel">⬇ Descargar Excel para costeo</button>
+        </div>
+        <div id="materialesLista" style="display:flex;flex-direction:column;gap:10px;margin-top:14px;"></div>
+        <p class="note" style="margin-top:10px;">Solo informes ya generados que registraron materiales. El Excel trae una fila por material con la columna "Costo unitario" vacía: llénala con el costo de Odoo y el total por visita se calcula solo.</p>
+      </div>
+
+      <div class="card" id="auditoriaCard" data-vista="contabilidad" hidden>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
           <h2 style="margin-bottom:0;">Auditoría de repuestos</h2>
           <span class="note" id="auditoriaCount"></span>
@@ -283,7 +309,7 @@ table.repuestos td.qty input{width:64px; text-align:center;}
         <p class="note" style="margin-top:10px;">Suma de unidades reportadas por repuesto/parte en los informes ya generados. Estos totales todavía no se comparan contra el inventario de bodega (pendiente sincronizar bodega desde Odoo a Supabase).</p>
       </div>
 
-      <div id="formularioSection">
+      <div id="formularioSection" data-vista="tecnico oficina">
         <p class="note" id="volverPendientesWrap" data-vista="oficina" hidden>
           <a href="#" id="linkVolverPendientes" style="color:var(--accent-dark);font-weight:600;text-decoration:none;">← Volver a pendientes</a>
         </p>
@@ -388,8 +414,13 @@ document.getElementById("logoImg").src = LOGO_DATA_URI;
 const SUPABASE_URL = "https://wiqnfnlnsdnkxgshchjg.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndpcW5mbmxuc2Rua3hnc2hjaGpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzNzg3NTYsImV4cCI6MjEwMTk1NDc1Nn0.nhpxj8lF0A7aFa-xTEqDrIWY04y_MI15ZQyQ3L7VfHQ";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-const VISTA = new URLSearchParams(location.search).get('vista') === 'oficina' ? 'oficina' : 'tecnico';
-document.title = VISTA === 'oficina' ? 'Generador de Informes — Oficina' : 'Generador de Informes — Técnico';
+// ?vista=oficina → María Isabel (genera informes). ?vista=contabilidad → Ximena y gerencia (materiales y auditoría).
+// Sin parámetro → técnico. OJO: es separación de pantallas por link, no un control de acceso con contraseña.
+const VISTA_PARAM = new URLSearchParams(location.search).get('vista');
+const VISTA = VISTA_PARAM === 'oficina' ? 'oficina' : (VISTA_PARAM === 'contabilidad' ? 'contabilidad' : 'tecnico');
+const VISTA_NOMBRE = {oficina:'Oficina', contabilidad:'Contabilidad', tecnico:'Técnico'}[VISTA];
+document.title = 'Generador de Informes — ' + VISTA_NOMBRE;
+const CORREO_CONTABILIDAD = 'contabilidad@energycontrolsa.com';
 const FOTOS_BUCKET = "informes-fotos-temp";
 const PA_SHAREPOINT_URL = "https://defaultb2cce9a6443f42c7b085d80d2fb83b.f8.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/23/workflows/9ca870a18901436786562d9f546c4184/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=qOdqRws7ZmiaDQsQK5kjOPkx63dKNM6svTfNliaSkkg";
 const MESES_ES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
@@ -495,6 +526,8 @@ const TIPOS = {
     label:'Mantenimiento Generador a Gas', short:'Generador',
     docTitle:'INFORME DE MANTENIMIENTOS DE GENERADOR A GAS',
     equipo:{title:'Datos del generador', campos:CAMPOS_GEN_GAS},
+    // Orden del Word en franjas (pares por fila; una fila con un solo campo ocupa el ancho restante)
+    docFilasEquipo:[['marca','modelo'],['serie','potencia'],['horasMotor','horasUltimoMant'],['fechaUltimoMant']],
     checklist:{dual:true, cols:['realizado'], perRowObs:false, groups:[
       {title:'Primer mantenimiento — 50 horas o 3 meses de uso', items:[
         'Cambio de Aceite y Filtros','Inspección de líneas de conexión y líneas de combustible',
@@ -1081,10 +1114,42 @@ async function buildDocx(){
     }
     infoRows.push(new D.TableRow({children: rowCells}));
   }
-  const infoTable = new D.Table({
+  let infoTable = new D.Table({
     width:{size:100, type:D.WidthType.PERCENTAGE},
     rows: infoRows,
   });
+
+  // Formato en franjas (hoy solo Generador a Gas): Datos del servicio arriba, datos del equipo abajo, sin celdas vacías.
+  if(t.docFilasEquipo){
+    const ANCHOS = [2100, 2900, 2500, 2300]; // 4 columnas: etiqueta | valor | etiqueta | valor
+    const ETIQUETA_DOC = {fechaUltimoMant:'Fecha último mant.', horasUltimoMant:'Horas motor último mant.'};
+    const sumAnchos = (a, b) => ANCHOS.slice(a, b + 1).reduce((x, y) => x + y, 0);
+    const lab = (text, col) => cell(text, {shade:'EEF1E8', run:{bold:true, size:18}, width: ANCHOS[col]});
+    const val = (text, desde, hasta) => cell(text || '', {run:{size:18}, width: sumAnchos(desde, hasta), span: hasta > desde ? hasta - desde + 1 : undefined});
+    const banda = text => new D.TableRow({children:[ cell(new D.Paragraph({alignment:D.AlignmentType.CENTER, children:[new D.TextRun({text, bold:true, size:20})]}), {shade:'DCE9C9', span:4, width: sumAnchos(0,3)}) ]});
+    const campoEquipo = key => t.equipo.campos.find(c => c.key === key);
+    const valorEquipo = c => c ? (c.type === 'date' ? formatFechaInforme(st.equipo[c.key]) : (st.equipo[c.key] || '')) : '';
+    const etiquetaEquipo = c => (ETIQUETA_DOC[c.key] || c.label) + ':';
+    const filas = [
+      banda('DATOS DEL SERVICIO'),
+      new D.TableRow({children:[ lab('Fecha:',0), val(formatFechaInforme(st.cliente.fecha),1,1), lab('Técnico:',2), val(st.cliente.tecnico,3,3) ]}),
+      new D.TableRow({children:[ lab('Cliente:',0), val(st.cliente.cliente,1,3) ]}),
+      new D.TableRow({children:[ lab('Dirección:',0), val(st.cliente.direccion,1,3) ]}),
+      banda((t.equipo.title || 'Datos del equipo').toUpperCase()),
+    ];
+    t.docFilasEquipo.forEach(par => {
+      const a = campoEquipo(par[0]), b = par[1] ? campoEquipo(par[1]) : null;
+      if(!a) return;
+      filas.push(new D.TableRow({children: b
+        ? [ lab(etiquetaEquipo(a),0), val(valorEquipo(a),1,1), lab(etiquetaEquipo(b),2), val(valorEquipo(b),3,3) ]
+        : [ lab(etiquetaEquipo(a),0), val(valorEquipo(a),1,3) ]}));
+    });
+    infoTable = new D.Table({
+      width:{size:100, type:D.WidthType.PERCENTAGE},
+      columnWidths: ANCHOS,
+      rows: filas,
+    });
+  }
 
   // Checklist table(s)
   function statusLabel(status, col){ return status === col ? '✓' : ''; }
@@ -1327,6 +1392,7 @@ async function enviarASharePoint(blob, fotosMeta){
     docxNombre: clienteFileName(),
     docxBase64,
     fotos: (fotosMeta || []).map(f => ({ nombre: f.nombre, url: f.url })),
+    ...datosAvisoContabilidad(),
   };
   const res = await fetch(PA_SHAREPOINT_URL, {
     method: 'POST',
@@ -1334,6 +1400,32 @@ async function enviarASharePoint(blob, fotosMeta){
     body: JSON.stringify(payload),
   });
   if(!res.ok) throw new Error('Power Automate respondió ' + res.status);
+}
+
+// Datos para el correo a Contabilidad (lo envía el flujo de Power Automate si hayMateriales = true).
+function datosAvisoContabilidad(){
+  const st = s();
+  const filas = normalizarRepuestos(st.repuestos)
+    .map(it => ({nombre: (it.nombre || '').trim(), codigo: it.codigo || '', cantidad: it.cantidad}))
+    .filter(it => it.nombre && parseCantidadRepuesto(it.cantidad) !== 0);
+  const tName = tipo().label;
+  const fecha = formatFechaInforme(st.cliente.fecha);
+  const celda = 'border:1px solid #bbb;padding:4px 8px;';
+  const html = filas.length ? `
+    <p>Se generó un informe de mantenimiento con materiales utilizados. Por favor costearlos.</p>
+    <p><b>Cliente:</b> ${escapeHtml(st.cliente.cliente || '')}<br><b>Servicio:</b> ${escapeHtml(tName)}<br>
+       <b>Fecha de visita:</b> ${escapeHtml(fecha)}<br><b>Técnico:</b> ${escapeHtml(st.cliente.tecnico || '')}</p>
+    <table style="border-collapse:collapse;font-family:Arial;font-size:13px;">
+      <tr><th style="${celda}background:#EEF1E8;">Código</th><th style="${celda}background:#EEF1E8;">Material</th><th style="${celda}background:#EEF1E8;">Cantidad</th></tr>
+      ${filas.map(f => `<tr><td style="${celda}">${escapeHtml(f.codigo || '—')}</td><td style="${celda}">${escapeHtml(f.nombre)}</td><td style="${celda}text-align:center;">${escapeHtml(String(f.cantidad))}</td></tr>`).join('')}
+    </table>` : '';
+  return {
+    correoContabilidad: CORREO_CONTABILIDAD,
+    hayMateriales: filas.length > 0,
+    asuntoContabilidad: `Materiales usados — ${st.cliente.cliente || ''} — ${tName} — ${fecha}`,
+    materialesHtml: html,
+    materiales: filas,
+  };
 }
 
 function slugify(v){
@@ -1687,10 +1779,133 @@ function renderAuditoriaResumen(){
   }
 }
 
+/* ---------------- Materiales por visita (vista Contabilidad) ---------------- */
+let materialesCache = [];   // informes generados con repuestos
+let materialesBodega = new Map(); // odoo_product_id -> {codigo, nombre, unidad_medida}
+let materialesCargados = false;
+
+// Convierte el campo repuestos de un informe en filas limpias {codigo, nombre, unidad, cantidad, cantidadTexto, valida}
+function materialesDeInforme(d){
+  return normalizarRepuestos(d.repuestos).map(it => {
+    const nombre = (it.nombre || '').trim();
+    if(!nombre) return null;
+    const cantidad = parseCantidadRepuesto(it.cantidad);
+    if(cantidad === 0) return null;
+    const bod = it.producto_odoo_id ? materialesBodega.get(it.producto_odoo_id) : null;
+    return {
+      codigo: it.codigo || (bod && bod.codigo) || '',
+      nombre,
+      unidad: (bod && bod.unidad_medida) || '',
+      cantidad: cantidad === null ? null : cantidad,
+      cantidadTexto: String(it.cantidad == null ? '' : it.cantidad),
+      valida: cantidad !== null,
+      vinculado: !!it.producto_odoo_id,
+    };
+  }).filter(Boolean);
+}
+
+async function renderMateriales(){
+  const listaEl = document.getElementById('materialesLista');
+  listaEl.innerHTML = '<p class="note">Cargando…</p>';
+  const [infRes, bodRes] = await Promise.all([
+    sb.from('informes_mantenimiento')
+      .select('id,tipo_servicio,cliente,direccion,tecnico,fecha,repuestos,generado_at')
+      .eq('estado', 'generado')
+      .not('repuestos', 'is', null)
+      .order('fecha', {ascending:false})
+      .limit(1000),
+    sb.from('productos_bodega').select('odoo_product_id,codigo,nombre,unidad_medida').limit(5000),
+  ]);
+  materialesCargados = true;
+  if(infRes.error){
+    console.error(infRes.error);
+    listaEl.innerHTML = '<p class="note" style="color:var(--danger)">No se pudieron cargar los materiales.</p>';
+    return;
+  }
+  if(bodRes.error) console.error(bodRes.error);
+  materialesBodega = new Map((bodRes.data || []).map(p => [p.odoo_product_id, p]));
+  materialesCache = (infRes.data || [])
+    .map(d => Object.assign({}, d, {materiales: materialesDeInforme(d)}))
+    .filter(d => d.materiales.length);
+  renderMaterialesLista();
+}
+
+function materialesFiltrados(){
+  const desde = document.getElementById('materialesDesde').value;
+  const hasta = document.getElementById('materialesHasta').value;
+  const q = document.getElementById('materialesBuscar').value.trim().toLowerCase();
+  return materialesCache.filter(d => {
+    if(desde && (!d.fecha || d.fecha < desde)) return false;
+    if(hasta && (!d.fecha || d.fecha > hasta)) return false;
+    if(q){
+      const texto = [d.cliente, d.tecnico, ...d.materiales.map(m => m.nombre + ' ' + m.codigo)].join(' ').toLowerCase();
+      if(!texto.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderMaterialesLista(){
+  const listaEl = document.getElementById('materialesLista');
+  const countEl = document.getElementById('materialesCount');
+  const filas = materialesFiltrados();
+  countEl.textContent = filas.length ? `${filas.length} visita(s) con materiales` : '';
+  if(!filas.length){
+    listaEl.innerHTML = `<p class="note">${materialesCache.length ? 'No hay visitas con materiales en este filtro.' : 'Todavía no hay informes generados con materiales registrados.'}</p>`;
+    return;
+  }
+  listaEl.innerHTML = filas.map(d => {
+    const tName = TIPOS[d.tipo_servicio] ? TIPOS[d.tipo_servicio].short : d.tipo_servicio;
+    return `
+      <div style="border:1px solid var(--border);border-radius:8px;padding:10px;">
+        <div style="font:600 13.5px 'Work Sans';">${escapeHtml(d.cliente || '(sin cliente)')} <span style="color:var(--text-muted);font-weight:500;">— ${escapeHtml(tName)}</span></div>
+        <div class="note">Visita: ${d.fecha ? formatFechaInforme(d.fecha) : '—'} · Técnico: ${escapeHtml(d.tecnico || '—')}</div>
+        <div class="table-scroll">
+          <table class="repuestos" style="margin-top:8px;">
+            <thead><tr><th style="width:110px;">Código</th><th>Material</th><th style="width:80px;">Unidad</th><th style="width:90px;">Cantidad</th></tr></thead>
+            <tbody>${d.materiales.map(m => `<tr>
+              <td>${escapeHtml(m.codigo || '—')}</td>
+              <td>${escapeHtml(m.nombre)}${m.vinculado ? '' : ' <span class="note">(no vinculado a Odoo)</span>'}</td>
+              <td>${escapeHtml(m.unidad || '—')}</td>
+              <td>${m.valida ? m.cantidad : `<span style="color:var(--danger);font-weight:600;" title="Valor no numérico: corregir desde Generados → Editar">${escapeHtml(m.cantidadTexto)} ⚠</span>`}</td>
+            </tr>`).join('')}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function descargarExcelMateriales(){
+  if(typeof XLSX === 'undefined'){ setStatus('No se pudo cargar el generador de Excel. Recarga la página.', 'err'); return; }
+  const filas = materialesFiltrados();
+  if(!filas.length){ setStatus('No hay materiales para descargar con este filtro.', 'err'); return; }
+  const encabezado = ['Fecha visita','Cliente','Tipo de servicio','Técnico','Código','Material','Unidad','Cantidad','Costo unitario','Total'];
+  const aoa = [encabezado];
+  filas.forEach(d => {
+    const tName = TIPOS[d.tipo_servicio] ? TIPOS[d.tipo_servicio].label : d.tipo_servicio;
+    d.materiales.forEach(m => {
+      aoa.push([d.fecha ? formatFechaInforme(d.fecha) : '', d.cliente || '', tName, d.tecnico || '',
+                m.codigo, m.nombre, m.unidad, m.valida ? m.cantidad : m.cantidadTexto, null, null]);
+    });
+  });
+  const hoja = XLSX.utils.aoa_to_sheet(aoa);
+  // Total = Cantidad × Costo unitario (se calcula solo cuando Contabilidad llena el costo)
+  for(let r = 2; r <= aoa.length; r++){
+    hoja['J' + r] = {t:'n', f:`IF(I${r}="","",H${r}*I${r})`};
+  }
+  hoja['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:aoa.length-1, c:encabezado.length-1}});
+  hoja['!cols'] = [{wch:12},{wch:32},{wch:30},{wch:20},{wch:14},{wch:40},{wch:9},{wch:10},{wch:14},{wch:12}];
+  hoja['!autofilter'] = {ref: hoja['!ref']};
+  const libro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(libro, hoja, 'Materiales por visita');
+  const hoy = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(libro, `materiales_por_visita_${hoy}.xlsx`);
+}
+
 // -------- Pestañas del panel de oficina (Pendientes / Generados / Formulario) --------
 let oficinaTab = 'pendientes';
 function setOficinaTab(tab){
-  if(VISTA !== 'oficina') return;
+  if(VISTA !== 'oficina' && VISTA !== 'contabilidad') return;
   oficinaTab = tab;
   const pendientesCard = document.getElementById('pendientesCard');
   const generadosCard = document.getElementById('generadosCard');
@@ -1700,6 +1915,10 @@ function setOficinaTab(tab){
   const navP = document.getElementById('navPendientes');
   const navG = document.getElementById('navGenerados');
   const navA = document.getElementById('navAuditoria');
+  const materialesCard = document.getElementById('materialesCard');
+  const navM = document.getElementById('navMateriales');
+  materialesCard.hidden = tab !== 'materiales';
+  navM.setAttribute('aria-pressed', tab === 'materiales');
   pendientesCard.hidden = tab !== 'pendientes';
   generadosCard.hidden = tab !== 'generados';
   auditoriaCard.hidden = tab !== 'auditoria';
@@ -1710,8 +1929,13 @@ function setOficinaTab(tab){
   navA.setAttribute('aria-pressed', tab === 'auditoria');
   if(tab === 'generados' && !generadosCargados) renderGenerados();
   if(tab === 'auditoria' && !auditoriaCargada) renderAuditoria();
+  if(tab === 'materiales' && !materialesCargados) renderMateriales();
 }
-if(VISTA === 'oficina'){
+if(VISTA === 'oficina' || VISTA === 'contabilidad'){
+  document.getElementById('navMateriales').addEventListener('click', () => setOficinaTab('materiales'));
+  ['materialesDesde','materialesHasta'].forEach(id => document.getElementById(id).addEventListener('change', renderMaterialesLista));
+  document.getElementById('materialesBuscar').addEventListener('input', renderMaterialesLista);
+  document.getElementById('btnMaterialesExcel').addEventListener('click', descargarExcelMateriales);
   document.getElementById('navPendientes').addEventListener('click', () => setOficinaTab('pendientes'));
   document.getElementById('navGenerados').addEventListener('click', () => setOficinaTab('generados'));
   document.getElementById('navAuditoria').addEventListener('click', () => setOficinaTab('auditoria'));
@@ -1723,7 +1947,7 @@ if(VISTA === 'oficina'){
     document.getElementById('auditoriaHasta').value = '';
     renderAuditoriaResumen();
   });
-  setOficinaTab('pendientes');
+  setOficinaTab(VISTA === 'contabilidad' ? 'materiales' : 'pendientes');
 }
 
 const btnGuardar = document.getElementById('btnGuardar');
@@ -1859,11 +2083,11 @@ async function marcarGenerado(id){
 }
 
 document.querySelectorAll('[data-vista]').forEach(el => {
-  if(el.dataset.vista !== VISTA) el.hidden = true;
+  if(!el.dataset.vista.split(/\s+/).includes(VISTA)) el.hidden = true;
 });
-document.getElementById('vistaLabel').textContent = VISTA === 'oficina' ? 'Vista: Oficina' : 'Vista: Técnico';
+document.getElementById('vistaLabel').textContent = 'Vista: ' + VISTA_NOMBRE;
 
 renderAll();
-renderBorradores();
+if(VISTA !== 'contabilidad') renderBorradores();
 })();
 </script>
