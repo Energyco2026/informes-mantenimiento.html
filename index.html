@@ -447,7 +447,7 @@ const TIPOS = {
       'Revisión de funcionamiento de Emporias.','Pruebas de Desempeño.'
     ]},
     repuestos:['Fusibles','MC4','Mid Clamps','End Clamps','Seccionador DC','Breakers','Emporias y Sensores','Repetidor Wifi','Otros'],
-    recomendaciones:true
+    recomendaciones:true, firma:true
   },
   baterias: {
     label:'Mantenimiento de Baterías', short:'Baterías',
@@ -459,7 +459,7 @@ const TIPOS = {
       'Pruebas de Desempeño.'
     ]},
     repuestos:['Fusibles','MC4','Mid Clamps','End Clamps','Seccionador DC','Breakers','Emporias y Sensores','Repetidor Wifi','Otros'],
-    recomendaciones:true
+    recomendaciones:true, firma:true
   },
   visita: {
     label:'Visita Técnica General', short:'Visita Técnica',
@@ -474,7 +474,7 @@ const TIPOS = {
       'Revisión de estructuras y filtraciones en techo.','Pruebas de funcionamiento.'
     ]},
     repuestos:['Fusibles','Cable','Cajas','Terminal de punta','Selectores','Breakers','Emporias y Sensores','Repetidor Wifi','Portafusibles','Otros'],
-    recomendaciones:false
+    recomendaciones:false, firma:true
   },
   gen_control: {
     label:'Visita de Control Generador', short:'Control Generador',
@@ -826,7 +826,7 @@ function renderTextAreas(){
 }
 obsEl.addEventListener('input', () => { s().observaciones = obsEl.value; });
 
-/* ---------------- Próximo mantenimiento + firma (solo generadores) ----------------
+/* ---------------- Próximo mantenimiento (solo generadores) + firma (todos los informes) ----------------
    Se guardan dentro de s().equipo (columna JSON 'equipo' en Supabase): no hace falta crear columnas nuevas. */
 const proximoMantWrap = document.getElementById('proximoMantWrap');
 const proximoMantSel = document.getElementById('proximoMant');
