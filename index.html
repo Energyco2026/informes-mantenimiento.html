@@ -469,6 +469,7 @@ const CAMPOS_GEN_GAS = [
   {key:'potencia', label:'Potencia', type:'select-otro', opciones:['14 KW','22 KW']},
   {key:'fechaUltimoMant', label:'Fecha último mantenimiento', type:'date'},
   {key:'horasUltimoMant', label:'Horas motor último mantenimiento', ph:'Ej: 456'},
+  {key:'arranqueHorario', label:'Arranque horario', ph:'Ej: Lunes 10:00'},
 ];
 
 const TIPOS = {
@@ -531,7 +532,7 @@ const TIPOS = {
     docTitle:'INFORME DE MANTENIMIENTOS DE GENERADOR A GAS',
     equipo:{title:'Datos del generador', campos:CAMPOS_GEN_GAS},
     // Orden del Word en franjas (pares por fila; una fila con un solo campo ocupa el ancho restante)
-    docFilasEquipo:[['marca','modelo'],['serie','potencia'],['horasMotor','horasUltimoMant'],['fechaUltimoMant']],
+    docFilasEquipo:[['marca','modelo'],['serie','potencia'],['horasMotor','horasUltimoMant'],['fechaUltimoMant','arranqueHorario']],
     checklist:{dual:true, cols:['realizado'], perRowObs:false, groups:[
       {title:'Primer mantenimiento — 50 horas o 3 meses de uso', items:[
         'Cambio de Aceite y Filtros','Inspección de líneas de conexión y líneas de combustible',
