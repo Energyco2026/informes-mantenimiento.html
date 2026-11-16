@@ -309,6 +309,18 @@ table.repuestos td.qty input{width:64px; text-align:center;}
         <p class="note" style="margin-top:10px;">Suma de unidades reportadas por repuesto/parte en los informes ya generados. Estos totales todavía no se comparan contra el inventario de bodega (pendiente sincronizar bodega desde Odoo a Supabase).</p>
       </div>
 
+      <div class="card" id="misGuardadosCard" data-vista="tecnico">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+          <h2 style="margin-bottom:0;">Informes guardados (aún no generados)</h2>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span class="note" id="misGuardadosCount"></span>
+            <button type="button" class="btn-secondary" id="btnNuevoInforme">➕ Nuevo informe</button>
+          </div>
+        </div>
+        <div id="misGuardadosList" style="display:flex;flex-direction:column;gap:8px;margin-top:10px;"></div>
+        <p class="note" style="margin-top:10px;">¿Te olvidaste una foto o un dato? Abre el informe, agrega lo que falta y vuelve a presionar "Guardar información". Se actualiza el mismo informe (no se duplica). Solo se puede mientras la oficina no lo haya generado.</p>
+      </div>
+
       <div id="formularioSection" data-vista="tecnico oficina gerencia">
         <p class="note" id="volverPendientesWrap" data-vista="oficina gerencia" hidden>
           <a href="#" id="linkVolverPendientes" style="color:var(--accent-dark);font-weight:600;text-decoration:none;">← Volver a pendientes</a>
@@ -593,7 +605,13 @@ function renderTipoRow(){
     b.type = 'button';
     b.textContent = t.short;
     b.setAttribute('aria-pressed', key === currentTipoKey ? 'true' : 'false');
-    b.addEventListener('click', () => { currentTipoKey = key; registroActualId = null; fotosMetaActual = null; renderAll(); if(GENERA_INFORMES) setOficinaTab('formulario'); });
+    b.addEventListener('click', () => {
+      registroPorTipo[currentTipoKey] = {id: registroActualId, fotos: fotosMetaActual};
+      currentTipoKey = key;
+      const prev = registroPorTipo[key] || {};
+      registroActualId = prev.id || null; fotosMetaActual = prev.fotos || null;
+      renderAll(); if(GENERA_INFORMES) setOficinaTab('formulario');
+    });
     tipoRow.appendChild(b);
   });
 }
@@ -1362,6 +1380,7 @@ btnGenerar.addEventListener('click', async () => {
 /* ---------------- Guardar / cargar informes (técnico → oficina) — Supabase ---------------- */
 
 let registroActualId = null; // id del registro cargado desde Supabase (si lo hay)
+const registroPorTipo = {}; // recuerda qué registro estaba abierto en cada pestaña de tipo
 let fotosMetaActual = null; // fotos (path/nombre/url reales en Supabase Storage) del borrador cargado, para poder enviarlas a SharePoint
 
 function blobToBase64(blob){
@@ -1982,8 +2001,14 @@ btnGuardar.addEventListener('click', async () => {
     };
     let error, fotosAnteriores = null;
     if(registroActualId){
-      const {data: previo} = await sb.from('informes_mantenimiento').select('fotos').eq('id', registroActualId).single();
-      fotosAnteriores = previo ? previo.fotos : null;
+      const {data: previo} = await sb.from('informes_mantenimiento').select('fotos,estado').eq('id', registroActualId).single();
+      if(!previo || previo.estado !== 'guardado'){
+        await borrarFotosStorage(fotosMeta); fotosMeta = null;
+        setStatus('Este informe ya fue generado por la oficina (o eliminado). Envía la foto o el dato faltante a María Isabel.', 'err');
+        await renderMisGuardados();
+        return;
+      }
+      fotosAnteriores = previo.fotos;
       ({error} = await sb.from('informes_mantenimiento').update(payload).eq('id', registroActualId));
     } else {
       const {data, error: insErr} = await sb.from('informes_mantenimiento').insert(payload).select('id').single();
@@ -1993,6 +2018,7 @@ btnGuardar.addEventListener('click', async () => {
     if(error) throw error;
     if(fotosAnteriores) await borrarFotosStorage(fotosAnteriores); // reemplazadas por las nuevas: ya no sirven
     await renderBorradores();
+    await renderMisGuardados();
     setStatus('Información guardada ✓ — la oficina ya puede cargarla y generar el informe.', 'ok');
   }catch(err){
     console.error(err);
@@ -2024,7 +2050,9 @@ async function cargarBorrador(id){
     };
     renderAll();
     setOficinaTab('formulario');
-    setStatus('Informe cargado — revisa los datos y genera el Word cuando esté listo.', 'ok');
+    setStatus(VISTA === 'tecnico'
+      ? 'Informe abierto — agrega lo que falta y presiona "Guardar información" para actualizarlo.'
+      : 'Informe cargado — revisa los datos y genera el Word cuando esté listo.', 'ok');
   }catch(err){
     console.error(err);
     setStatus('No se pudo cargar el informe.', 'err');
@@ -2066,6 +2094,7 @@ async function eliminarBorrador(id){
     await borrarFotosStorage(full ? full.fotos : []);
     await sb.from('informes_mantenimiento').delete().eq('id', id);
     if(registroActualId === id){ registroActualId = null; fotosMetaActual = null; }
+    Object.keys(registroPorTipo).forEach(k => { if(registroPorTipo[k] && registroPorTipo[k].id === id) delete registroPorTipo[k]; });
     await renderBorradores();
     setStatus('Informe guardado eliminado.');
   }catch(err){
@@ -2081,12 +2110,66 @@ async function marcarGenerado(id){
     // Las fotos ya quedaron incrustadas en el Word descargado: se liberan del bucket temporal
     // para que Supabase Storage no se llene. El .docx (con las fotos) lo subes tú a SharePoint.
     await borrarFotosStorage(full ? full.fotos : []);
+    Object.keys(registroPorTipo).forEach(k => { if(registroPorTipo[k] && registroPorTipo[k].id === id) delete registroPorTipo[k]; });
     registroActualId = null;
     fotosMetaActual = null;
   }catch(err){
     console.error('No se pudo actualizar el registro', err);
   }
 }
+
+async function renderMisGuardados(){
+  if(VISTA !== 'tecnico') return;
+  const listEl = document.getElementById('misGuardadosList');
+  const countEl = document.getElementById('misGuardadosCount');
+  const {data, error} = await sb
+    .from('informes_mantenimiento')
+    .select('id,tipo_servicio,cliente,fecha,tecnico,fotos,created_at')
+    .eq('estado', 'guardado')
+    .order('created_at', {ascending:false});
+  if(error){
+    console.error(error);
+    listEl.innerHTML = '<p class="note" style="color:var(--danger)">No se pudo cargar el listado (revisa tu conexión).</p>';
+    return;
+  }
+  const filas = data || [];
+  countEl.textContent = filas.length ? `${filas.length} sin generar` : '';
+  if(!filas.length){
+    listEl.innerHTML = '<p class="note">No hay informes guardados pendientes de generar.</p>';
+    return;
+  }
+  listEl.innerHTML = filas.map(d => {
+    const tName = TIPOS[d.tipo_servicio] ? TIPOS[d.tipo_servicio].short : d.tipo_servicio;
+    const nFotos = (d.fotos || []).length;
+    const guardado = d.created_at ? new Date(d.created_at).toLocaleString('es-EC', {dateStyle:'short', timeStyle:'short'}) : '';
+    const abierto = d.id === registroActualId ? ' <span style="color:var(--accent-dark);font-weight:600;">(abierto)</span>' : '';
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--surface-2);">
+        <div style="min-width:0;">
+          <div style="font:600 13.5px 'Work Sans';">${escapeHtml(d.cliente || '(sin cliente)')} <span style="color:var(--text-muted);font-weight:500;">— ${escapeHtml(tName)}</span>${abierto}</div>
+          <div class="note">Técnico: ${escapeHtml(d.tecnico || '—')} · Visita: ${d.fecha ? formatFechaInforme(d.fecha) : '—'} · ${nFotos} foto(s) · Guardado: ${guardado}</div>
+        </div>
+        <button type="button" class="btn-secondary" data-abrir="${escapeAttr(d.id)}">Abrir para completar</button>
+      </div>`;
+  }).join('');
+  listEl.querySelectorAll('[data-abrir]').forEach(b => b.addEventListener('click', async () => {
+    await cargarBorrador(b.dataset.abrir);
+    registroPorTipo[currentTipoKey] = {id: registroActualId, fotos: fotosMetaActual};
+    await renderMisGuardados();
+    document.getElementById('formularioSection').scrollIntoView({behavior:'smooth'});
+  }));
+}
+
+const btnNuevoInforme = document.getElementById('btnNuevoInforme');
+if(btnNuevoInforme) btnNuevoInforme.addEventListener('click', async () => {
+  if(!confirm('¿Empezar un informe nuevo en blanco? Lo que no hayas guardado se perderá.')) return;
+  Object.keys(TIPOS).forEach(k => state[k] = freshState());
+  Object.keys(registroPorTipo).forEach(k => delete registroPorTipo[k]);
+  registroActualId = null; fotosMetaActual = null;
+  renderAll();
+  await renderMisGuardados();
+  setStatus('Formulario en blanco listo para un informe nuevo.', 'ok');
+});
 
 document.querySelectorAll('[data-vista]').forEach(el => {
   if(!el.dataset.vista.split(/\s+/).includes(VISTA)) el.hidden = true;
@@ -2095,5 +2178,6 @@ document.getElementById('vistaLabel').textContent = 'Vista: ' + VISTA_NOMBRE;
 
 renderAll();
 if(VISTA !== 'contabilidad') renderBorradores();
+renderMisGuardados();
 })();
 </script>
