@@ -213,6 +213,11 @@ table.repuestos td.qty input{width:64px; text-align:center;}
   border-radius:999px; padding:1px 7px; min-width:18px; text-align:center;
 }
 .nav-item[aria-pressed="true"] .nav-badge{background:rgba(255,255,255,.28); color:var(--accent-contrast);}
+.tec-tabs{
+  display:flex; gap:4px; margin-bottom:14px; background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius); padding:6px; box-shadow:var(--shadow);
+}
+.tec-tabs .nav-item{flex:1; justify-content:center;}
 @media (max-width:680px){
   .main-layout{flex-direction:column;}
   .oficina-nav{width:100%; flex-direction:row; position:static;}
@@ -229,7 +234,12 @@ table.repuestos td.qty input{width:64px; text-align:center;}
     </div>
   </div>
 
-  <div class="tipo-scroll" data-vista="tecnico oficina gerencia">
+  <div class="tec-tabs" data-vista="tecnico" role="tablist">
+    <button type="button" class="nav-item" id="tecTabForm" aria-pressed="true">📝 Formulario</button>
+    <button type="button" class="nav-item" id="tecTabGuardados" aria-pressed="false">📂 Guardados sin generar <span class="nav-badge" id="badgeMisGuardados">0</span></button>
+  </div>
+
+  <div class="tipo-scroll" id="tipoScroll" data-vista="tecnico oficina gerencia">
     <div class="tipo-row" id="tipoRow" role="tablist" aria-label="Tipo de servicio"></div>
   </div>
 
@@ -309,10 +319,11 @@ table.repuestos td.qty input{width:64px; text-align:center;}
         <p class="note" style="margin-top:10px;">Suma de unidades reportadas por repuesto/parte en los informes ya generados. Estos totales todavía no se comparan contra el inventario de bodega (pendiente sincronizar bodega desde Odoo a Supabase).</p>
       </div>
 
-      <div class="card" id="misGuardadosCard" data-vista="tecnico">
+      <div class="card" id="misGuardadosCard" data-vista="tecnico" hidden>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
           <h2 style="margin-bottom:0;">Informes guardados (aún no generados)</h2>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <select id="misGuardadosFiltro" aria-label="Filtrar por técnico" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);font:500 13px 'Work Sans';"><option value="">Todos los técnicos</option></select>
             <span class="note" id="misGuardadosCount"></span>
             <button type="button" class="btn-secondary" id="btnNuevoInforme">➕ Nuevo informe</button>
           </div>
@@ -2132,10 +2143,24 @@ async function renderMisGuardados(){
     listEl.innerHTML = '<p class="note" style="color:var(--danger)">No se pudo cargar el listado (revisa tu conexión).</p>';
     return;
   }
-  const filas = data || [];
+  const todas = data || [];
+  const sel = document.getElementById('misGuardadosFiltro');
+  if(!sel.dataset.init){
+    try{ sel.dataset.pref = localStorage.getItem('filtroTecnicoGuardados') || ''; }catch(e){ sel.dataset.pref = ''; }
+    sel.dataset.init = '1';
+  }
+  const elegido = sel.value || sel.dataset.pref || '';
+  const tecnicos = [...new Set(todas.map(d => d.tecnico).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">Todos los técnicos</option>' +
+    tecnicos.map(t => `<option value="${escapeAttr(t)}">${escapeHtml(t)}</option>`).join('');
+  sel.value = tecnicos.includes(elegido) ? elegido : '';
+  sel.dataset.pref = '';
+  const filas = sel.value ? todas.filter(d => d.tecnico === sel.value) : todas;
   countEl.textContent = filas.length ? `${filas.length} sin generar` : '';
+  const badgeMG = document.getElementById('badgeMisGuardados');
+  if(badgeMG) badgeMG.textContent = filas.length;
   if(!filas.length){
-    listEl.innerHTML = '<p class="note">No hay informes guardados pendientes de generar.</p>';
+    listEl.innerHTML = '<p class="note">No hay informes guardados pendientes de generar' + (sel.value ? ' para este técnico' : '') + '.</p>';
     return;
   }
   listEl.innerHTML = filas.map(d => {
@@ -2155,8 +2180,8 @@ async function renderMisGuardados(){
   listEl.querySelectorAll('[data-abrir]').forEach(b => b.addEventListener('click', async () => {
     await cargarBorrador(b.dataset.abrir);
     registroPorTipo[currentTipoKey] = {id: registroActualId, fotos: fotosMetaActual};
+    setTecTab('form');
     await renderMisGuardados();
-    document.getElementById('formularioSection').scrollIntoView({behavior:'smooth'});
   }));
 }
 
@@ -2167,9 +2192,31 @@ if(btnNuevoInforme) btnNuevoInforme.addEventListener('click', async () => {
   Object.keys(registroPorTipo).forEach(k => delete registroPorTipo[k]);
   registroActualId = null; fotosMetaActual = null;
   renderAll();
+  setTecTab('form');
   await renderMisGuardados();
   setStatus('Formulario en blanco listo para un informe nuevo.', 'ok');
 });
+
+// Pestañas de la vista técnico: Formulario / Guardados sin generar
+function setTecTab(tab){
+  if(VISTA !== 'tecnico') return;
+  const enForm = tab === 'form';
+  document.getElementById('tecTabForm').setAttribute('aria-pressed', enForm ? 'true' : 'false');
+  document.getElementById('tecTabGuardados').setAttribute('aria-pressed', enForm ? 'false' : 'true');
+  document.getElementById('misGuardadosCard').hidden = enForm;
+  document.getElementById('formularioSection').hidden = !enForm;
+  document.getElementById('tipoScroll').hidden = !enForm;
+  document.getElementById('btnGuardar').hidden = !enForm;
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+if(VISTA === 'tecnico'){
+  document.getElementById('tecTabForm').addEventListener('click', () => setTecTab('form'));
+  document.getElementById('misGuardadosFiltro').addEventListener('change', e => {
+    try{ localStorage.setItem('filtroTecnicoGuardados', e.target.value); }catch(err){}
+    renderMisGuardados();
+  });
+  document.getElementById('tecTabGuardados').addEventListener('click', () => { setTecTab('guardados'); renderMisGuardados(); });
+}
 
 document.querySelectorAll('[data-vista]').forEach(el => {
   if(!el.dataset.vista.split(/\s+/).includes(VISTA)) el.hidden = true;
