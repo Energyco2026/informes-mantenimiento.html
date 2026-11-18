@@ -1344,6 +1344,11 @@ function waitForDocx(timeoutMs){
   });
 }
 
+let generandoEnCurso = false;
+window.addEventListener('beforeunload', e => {
+  if(generandoEnCurso){ e.preventDefault(); e.returnValue = ''; }
+});
+
 btnGenerar.addEventListener('click', async () => {
   btnGenerar.disabled = true;
   setStatus('Preparando…');
@@ -1354,28 +1359,40 @@ btnGenerar.addEventListener('click', async () => {
     return;
   }
   setStatus('Generando informe…');
+  generandoEnCurso = true;
   try{
     const blob = await buildDocx();
     descargarBlob(blob, clienteFileName());
     if(registroActualId){
+      const id = registroActualId;
+      const fotos = fotosMetaActual;
+      // 1) Se marca como generado DE INMEDIATO, para que pase a "Generados"
+      //    aunque luego se recargue o cierre la página durante la subida.
+      const marcado = await marcarGenerado(id);
       let spOk = false, spErr = null;
-      if(fotosMetaActual){
-        setStatus('Informe descargado ✓ — enviando a SharePoint…', 'ok');
+      if(fotos){
+        setStatus('Informe descargado ✓ — subiendo a SharePoint… ⏳ NO recargues ni cierres la página hasta ver el mensaje final.', 'ok');
         try{
-          await enviarASharePoint(blob, fotosMetaActual);
+          await enviarASharePoint(blob, fotos);
           spOk = true;
         }catch(e){ spErr = e; console.error(e); }
       }
-      await marcarGenerado(registroActualId);
+      // 2) Recién cuando Power Automate terminó de leer las fotos, se liberan del bucket temporal
+      await borrarFotosStorage(fotos || []);
+      Object.keys(registroPorTipo).forEach(k => { if(registroPorTipo[k] && registroPorTipo[k].id === id) delete registroPorTipo[k]; });
+      registroActualId = null;
+      fotosMetaActual = null;
       await renderBorradores();
       if(generadosCargados) await renderGenerados();
       setOficinaTab('pendientes');
-      if(spOk){
-        setStatus('Informe descargado y subido a SharePoint ✓ (carpeta del cliente creada automáticamente).', 'ok');
-      } else if(fotosMetaActual){
-        setStatus('Informe descargado ✓, pero no se pudo enviar a SharePoint automáticamente (' + (spErr && spErr.message || 'error') + '). Súbelo tú a la carpeta del cliente.', 'err');
+      if(!marcado){
+        setStatus('Informe descargado, pero NO se pudo marcar como generado en el sistema. Avísale a Shirley antes de generarlo de nuevo.', 'err');
+      } else if(spOk){
+        setStatus('Listo ✓ Informe descargado, subido a SharePoint y movido a Generados. Ya puedes continuar con el siguiente.', 'ok');
+      } else if(fotos){
+        setStatus('Informe descargado y movido a Generados ✓, pero no se pudo enviar a SharePoint automáticamente (' + (spErr && spErr.message || 'error') + '). Súbelo tú a la carpeta del cliente.', 'err');
       } else {
-        setStatus('Informe descargado y registro actualizado ✓. Súbelo ahora a la carpeta de SharePoint del cliente.', 'ok');
+        setStatus('Informe descargado y movido a Generados ✓. Súbelo ahora a la carpeta de SharePoint del cliente.', 'ok');
       }
     } else {
       setStatus('Informe descargado ✓', 'ok');
@@ -1384,6 +1401,7 @@ btnGenerar.addEventListener('click', async () => {
     console.error(err);
     setStatus('Ocurrió un error generando el informe.', 'err');
   }finally{
+    generandoEnCurso = false;
     btnGenerar.disabled = false;
   }
 });
@@ -2115,18 +2133,13 @@ async function eliminarBorrador(id){
 }
 
 async function marcarGenerado(id){
-  try{
-    const {data: full} = await sb.from('informes_mantenimiento').select('fotos').eq('id', id).single();
-    await sb.from('informes_mantenimiento').update({estado:'generado', generado_at: new Date().toISOString()}).eq('id', id);
-    // Las fotos ya quedaron incrustadas en el Word descargado: se liberan del bucket temporal
-    // para que Supabase Storage no se llene. El .docx (con las fotos) lo subes tú a SharePoint.
-    await borrarFotosStorage(full ? full.fotos : []);
-    Object.keys(registroPorTipo).forEach(k => { if(registroPorTipo[k] && registroPorTipo[k].id === id) delete registroPorTipo[k]; });
-    registroActualId = null;
-    fotosMetaActual = null;
-  }catch(err){
-    console.error('No se pudo actualizar el registro', err);
-  }
+  // Solo cambia el estado. Las fotos NO se borran aquí: Power Automate todavía las necesita
+  // para subirlas a SharePoint; se borran al final del botón Generar.
+  const {error} = await sb.from('informes_mantenimiento')
+    .update({estado:'generado', generado_at: new Date().toISOString()})
+    .eq('id', id);
+  if(error){ console.error('No se pudo marcar como generado', error); return false; }
+  return true;
 }
 
 async function renderMisGuardados(){
